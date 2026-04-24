@@ -6,6 +6,7 @@ if (process.env.NODE_ENV !== "production") {
 
 import { randomUUID } from "node:crypto";
 import type { Context } from "grammy";
+import pino from "pino";
 
 import { CHANNELS, createRedisClient } from "@claude-remote/shared";
 import type {
@@ -29,6 +30,13 @@ import { SQLiteStore } from "./store/sqlite.js";
 async function main() {
   const cfg = parseConfig();
   console.log("✓ Config loaded");
+
+  const logger = pino({
+    redact: {
+      paths: ["TELEGRAM_BOT_TOKEN", "ANTHROPIC_API_KEY"],
+      remove: true,
+    },
+  });
 
   const redis = await createRedisClient(cfg.REDIS_URL, 3);
   console.log("✓ Redis connected");

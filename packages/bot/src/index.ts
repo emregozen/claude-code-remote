@@ -68,24 +68,27 @@ async function main() {
     const taskId = randomUUID();
     const msg = await ctx.reply("⏳ Working...");
 
+    const redisSession = await redisStore.getSession(userId);
+    const ccSessionId = (redisSession?.sessionId as string | undefined) ?? null;
+
     const newSession = {
-      sessionId: session?.sessionId ?? randomUUID(),
+      sessionId: ccSessionId,
       activeTaskId: taskId,
       lastMessageId: msg.message_id,
       updatedAt: new Date().toISOString(),
     };
     sessionStore.setSession(userId, newSession);
 
-    const event: TaskNewEvent = {
+    const taskEvent: TaskNewEvent = {
       taskId,
       userId,
       chatId: ctx.chat?.id ?? 0,
-      sessionId: newSession.sessionId,
+      sessionId: ccSessionId,
       prompt,
       createdAt: new Date().toISOString(),
     };
 
-    await redisStore.publishTaskNew(event);
+    await redisStore.publishTaskNew(taskEvent);
 
     const progressState = sessionStore.getProgress(taskId);
     const updater = new ProgressUpdater(
@@ -99,7 +102,7 @@ async function main() {
       updater.onProgressEvent(event);
     });
 
-    await redisStore.subscribeToTaskComplete(taskId, async (event: TaskCompleteEvent) => {
+    await redisStore.subscribeToTaskComplete(taskId, async (completeEvent: TaskCompleteEvent) => {
       await updater.cleanup();
       sessionStore.deleteProgress(taskId);
       const sess = sessionStore.getSession(userId);
@@ -107,12 +110,16 @@ async function main() {
         sess.activeTaskId = null;
         sessionStore.setSession(userId, sess);
       }
+      await redisStore.setSession(userId, {
+        sessionId: completeEvent.evidence.sessionId,
+        updatedAt: new Date().toISOString(),
+      });
       try {
         await ctx.api.deleteMessage(ctx.chatId, msg.message_id);
       } catch {
         // Ignore delete errors
       }
-      const evidenceMsg = renderEvidence(event.evidence, prompt);
+      const evidenceMsg = renderEvidence(completeEvent.evidence, prompt);
       await ctx.api.sendMessage(ctx.chatId, evidenceMsg, {
         parse_mode: "MarkdownV2",
       });

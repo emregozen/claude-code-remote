@@ -1,0 +1,37 @@
+# env / secrets
+.env
+.env.local
+.env.*.local
+
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# runtime data
+*.db
+*.db-journal
+*.sqlite
+
+# logs
+logs/
+*.log
+npm-debug.log*
+
+# test
+coverage/
+.nyc_output/
+
+# editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# docker volumes (if bind-mounted locally during dev)
+data/
+cc_home/

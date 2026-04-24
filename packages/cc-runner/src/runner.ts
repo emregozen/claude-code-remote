@@ -9,6 +9,7 @@ export class CCRunner {
   constructor(
     private redis: RedisClient,
     private workspacePath: string,
+    private taskTimeoutMs = 1800000,
   ) {}
 
   async executeTask(event: TaskNewEvent): Promise<void> {
@@ -21,6 +22,11 @@ export class CCRunner {
     let taskStartSha = "";
     const toolCalls: ToolCall[] = [];
     let lastBashCall: ToolCall | null = null;
+    const ac = new AbortController();
+
+    const timeoutHandle = setTimeout(() => {
+      ac.abort();
+    }, this.taskTimeoutMs);
 
     try {
       taskStartSha = await getGitHead(this.workspacePath);
@@ -35,6 +41,7 @@ export class CCRunner {
           cwd: "/workspace",
           resume: event.sessionId ?? undefined,
           permissionMode: "bypassPermissions",
+          abortController: ac,
         },
       });
 
@@ -114,15 +121,27 @@ export class CCRunner {
         }
       }
     } catch (error) {
+      clearTimeout(timeoutHandle);
       console.error(`[task:${event.taskId}] Error:`, error);
+
+      const isAborted = ac.signal.aborted;
+      const errorKind = isAborted ? "timeout" : "cc_crash";
+      const errorMsg = isAborted
+        ? "timeout"
+        : error instanceof Error
+          ? error.message
+          : String(error);
+
       await this.redis.publish(
         CHANNELS.TASK_ERROR(event.taskId),
         JSON.stringify({
           taskId: event.taskId,
-          kind: "cc_crash",
-          message: error instanceof Error ? error.message : String(error),
+          kind: errorKind,
+          message: errorMsg,
         }),
       );
+    } finally {
+      clearTimeout(timeoutHandle);
     }
   }
 }

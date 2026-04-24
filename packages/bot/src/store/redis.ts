@@ -31,11 +31,14 @@ export class RedisStore {
     await sub.subscribe(CHANNELS.TASK_COMPLETE(taskId));
   }
 
-  async subscribeToTaskError(taskId: string, callback: (error: unknown) => void): Promise<void> {
+  async subscribeToTaskError(
+    taskId: string,
+    callback: (error: Record<string, unknown>) => void | Promise<void>,
+  ): Promise<void> {
     const sub = this.redis.duplicate();
     sub.on("message", (channel, message) => {
       if (channel === CHANNELS.TASK_ERROR(taskId)) {
-        callback(JSON.parse(message));
+        void callback(JSON.parse(message) as Record<string, unknown>);
       }
     });
     await sub.subscribe(CHANNELS.TASK_ERROR(taskId));

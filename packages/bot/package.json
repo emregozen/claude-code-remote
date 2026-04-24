@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@claude-remote/shared": "*",
+    "better-sqlite3": "^11.0.0",
     "dotenv": "^16.4.0",
     "grammy": "^1.24.0",
     "ioredis": "^5.4.0",

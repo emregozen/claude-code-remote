@@ -43,7 +43,7 @@ async function main() {
 
   await createHookServer();
 
-  const runner = new CCRunner(redis, cfg.WORKSPACE_PATH);
+  const runner = new CCRunner(redis, cfg.WORKSPACE_PATH, cfg.TASK_TIMEOUT_MS);
 
   const sub = redis.duplicate();
   sub.on("message", async (channel, message) => {

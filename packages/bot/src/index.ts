@@ -7,11 +7,12 @@ if (process.env.NODE_ENV !== "production") {
 import { randomUUID } from "node:crypto";
 
 import { CHANNELS, createRedisClient } from "@claude-remote/shared";
-import type { ProgressEvent, TaskNewEvent } from "@claude-remote/shared";
+import type { ProgressEvent, TaskCompleteEvent, TaskNewEvent } from "@claude-remote/shared";
 import { Bot } from "grammy";
 
 import { allowlistMiddleware } from "./auth.js";
 import { parseConfig } from "./config.js";
+import { renderEvidence } from "./evidence.js";
 import {
   handleHelp,
   handleNew,
@@ -98,7 +99,7 @@ async function main() {
       updater.onProgressEvent(event);
     });
 
-    await redisStore.subscribeToTaskComplete(taskId, async () => {
+    await redisStore.subscribeToTaskComplete(taskId, async (event: TaskCompleteEvent) => {
       await updater.cleanup();
       sessionStore.deleteProgress(taskId);
       const sess = sessionStore.getSession(userId);
@@ -111,7 +112,10 @@ async function main() {
       } catch {
         // Ignore delete errors
       }
-      await ctx.reply("✅ Task done");
+      const evidenceMsg = renderEvidence(event.evidence, prompt);
+      await ctx.api.sendMessage(ctx.chatId, evidenceMsg, {
+        parse_mode: "MarkdownV2",
+      });
     });
 
     await redisStore.subscribeToTaskError(taskId, async () => {

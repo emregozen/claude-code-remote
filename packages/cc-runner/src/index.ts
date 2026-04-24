@@ -9,12 +9,17 @@ if (process.env.NODE_ENV !== "production") {
 
 import { CHANNELS, createRedisClient } from "@claude-remote/shared";
 import type { TaskNewEvent } from "@claude-remote/shared";
+
 import { parseConfig } from "./config.js";
+import { installCCHooks } from "./hooks/install.js";
 import { CCRunner } from "./runner.js";
+import { createHookServer } from "./server.js";
 
 async function main() {
   const cfg = parseConfig();
   console.log("✓ Config loaded");
+
+  installCCHooks();
 
   // Verify workspace is a git repo
   if (!existsSync(cfg.WORKSPACE_PATH)) {
@@ -36,7 +41,9 @@ async function main() {
   const redis = await createRedisClient(cfg.REDIS_URL, 3);
   console.log("✓ Redis connected");
 
-  const runner = new CCRunner(redis);
+  await createHookServer();
+
+  const runner = new CCRunner(redis, cfg.WORKSPACE_PATH);
 
   const sub = redis.duplicate();
   sub.on("message", async (channel, message) => {

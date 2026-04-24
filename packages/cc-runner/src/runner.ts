@@ -2,8 +2,14 @@ import type { RedisClient } from "@claude-remote/shared";
 import { CHANNELS } from "@claude-remote/shared";
 import type { ProgressEvent, TaskCompleteEvent, TaskNewEvent } from "@claude-remote/shared";
 
+import { type ToolCall, collectEvidence } from "./evidence/collector.js";
+import { getGitHead } from "./evidence/git.js";
+
 export class CCRunner {
-  constructor(private redis: RedisClient) {}
+  constructor(
+    private redis: RedisClient,
+    private workspacePath: string,
+  ) {}
 
   async executeTask(event: TaskNewEvent): Promise<void> {
     console.log(`[task:${event.taskId}] Starting execution`);
@@ -12,8 +18,13 @@ export class CCRunner {
     let tokensIn = 0;
     let tokensOut = 0;
     const startTime = Date.now();
+    let taskStartSha = "";
+    const toolCalls: ToolCall[] = [];
+    let lastBashCall: ToolCall | null = null;
 
     try {
+      taskStartSha = await getGitHead(this.workspacePath);
+
       // Dynamic import of @anthropic-ai/claude-code
       // @ts-ignore - SDK types may not be available at compile time
       const { query } = await import("@anthropic-ai/claude-code");
@@ -40,40 +51,60 @@ export class CCRunner {
             JSON.stringify(progressEvent),
           );
         } else if (msg.type === "tool_use") {
+          const tool = (msg.tool ?? "unknown") as string;
+          const toolCall: ToolCall = { tool };
+
+          if (tool === "Bash") {
+            const input = msg.input as Record<string, unknown> | undefined;
+            if (input?.command) {
+              toolCall.command = String(input.command);
+            }
+            lastBashCall = toolCall;
+            toolCalls.push(toolCall);
+          }
+
           const progressEvent: ProgressEvent = {
             taskId: event.taskId,
             kind: "tool_use",
-            tool: (msg.tool ?? "unknown") as string,
+            tool,
             summary: (msg.summary ?? "...") as string,
           };
           await this.redis.publish(
             CHANNELS.TASK_PROGRESS(event.taskId),
             JSON.stringify(progressEvent),
           );
+        } else if (msg.type === "tool_result") {
+          const isError = (msg.is_error ?? false) as boolean;
+          const output = msg.content as string | undefined;
+
+          if (lastBashCall) {
+            lastBashCall.exitCode = isError ? 1 : 0;
+            if (output) {
+              lastBashCall.output = output;
+            }
+            lastBashCall = null;
+          }
         } else if (msg.type === "result") {
           const sessionId = msg.session_id;
           tokensIn = (msg.tokens_input ?? 0) as number;
           tokensOut = (msg.tokens_output ?? 0) as number;
 
           const durationMs = Date.now() - startTime;
-          const completeEvent: TaskCompleteEvent = {
-            evidence: {
-              taskId: event.taskId,
-              sessionId: String(sessionId ?? event.sessionId),
-              summary: accumulatedText.slice(-1500),
-              diff: {
-                filesChanged: 0,
-                insertions: 0,
-                deletions: 0,
-                perFile: [],
-              },
-              tests: null,
-              durationMs,
-              tokensInput: tokensIn,
-              tokensOutput: tokensOut,
-              costUsd: null,
-            },
-          };
+
+          const evidence = await collectEvidence({
+            taskId: event.taskId,
+            sessionId: String(sessionId ?? event.sessionId),
+            taskStartSha,
+            lastAssistantText: accumulatedText,
+            tokensIn,
+            tokensOut,
+            costUsd: null,
+            durationMs,
+            workspacePath: this.workspacePath,
+            toolCalls,
+          });
+
+          const completeEvent: TaskCompleteEvent = { evidence };
 
           await this.redis.publish(
             CHANNELS.TASK_COMPLETE(event.taskId),

@@ -27,4 +27,20 @@ These are the questions from `SPEC.md` Section 13. Each must be resolved with an
 
 ## Deviations
 
-_(none yet)_
+### 2026-04-24 — Section 7.2 — Evidence collection timing
+
+**Decision:** Evidence is collected synchronously when the SDK `result` message is received, not after waiting 5s for the Stop hook HTTP callback.
+
+**Reason:** The Stop hook fires as part of CC's shutdown sequence and its payload (CC session metadata) doesn't contain data we can't obtain from the SDK result event and accumulated tool call history. Collecting evidence immediately is simpler, more reliable, and avoids race conditions.
+
+**Impact:** The Fastify server still starts and accepts Stop hook POSTs (so the hook script doesn't error CC), but cc-runner doesn't block on it.
+
+### 2026-04-24 — Section 13 — Open question Q4
+
+**Answer:** Stop hook payload doesn't need correlation to taskId. Since cc-runner processes tasks sequentially, the Stop hook that fires corresponds to the currently-executing task. Evidence is collected from SDK data directly.
+
+**Answer:** Q1, Q2, Q3, Q5 were implicitly answered during Steps 2-4:
+- Q1: `query` is the correct export from @anthropic-ai/claude-code
+- Q2: SDK emits `session_id` in the `result` message (msg.session_id)
+- Q3: Permission mode value is `bypassPermissions` (verified in runner.ts)
+- Q5: PROGRESS_EDIT_INTERVAL_MS default of 3000ms is used (verified in config + progress.ts)

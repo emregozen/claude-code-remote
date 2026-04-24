@@ -4,8 +4,12 @@ if (process.env.NODE_ENV !== "production") {
   config();
 }
 
-import { createRedisClient } from "@claude-remote/shared";
+import { randomUUID } from "node:crypto";
+
+import { CHANNELS, createRedisClient } from "@claude-remote/shared";
+import type { ProgressEvent, TaskNewEvent } from "@claude-remote/shared";
 import { Bot } from "grammy";
+
 import { allowlistMiddleware } from "./auth.js";
 import { parseConfig } from "./config.js";
 import {
@@ -15,24 +19,20 @@ import {
   handleStatus,
   handleStop,
 } from "./handlers/command.js";
-import { handleMessage } from "./handlers/message.js";
+import { ProgressUpdater } from "./progress.js";
 import { RateLimiter } from "./rate-limit.js";
+import { RedisStore } from "./store/redis.js";
+import { SessionStore } from "./store/session.js";
 
 async function main() {
   const cfg = parseConfig();
   console.log("✓ Config loaded");
 
-  try {
-    const redis = await createRedisClient(cfg.REDIS_URL, 3);
-    console.log("✓ Redis connected");
-    await redis.disconnect();
-  } catch (error) {
-    console.error(
-      "✗ Redis connection failed:",
-      error instanceof Error ? error.message : String(error),
-    );
-    process.exit(1);
-  }
+  const redis = await createRedisClient(cfg.REDIS_URL, 3);
+  console.log("✓ Redis connected");
+
+  const redisStore = new RedisStore(redis);
+  const sessionStore = new SessionStore();
 
   const bot = new Bot(cfg.TELEGRAM_BOT_TOKEN);
 
@@ -47,7 +47,89 @@ async function main() {
   bot.command("stop", handleStop);
   bot.command("new", handleNew);
 
-  bot.on("message", handleMessage);
+  bot.on("message", async (ctx) => {
+    const prompt = ctx.message?.text;
+    if (!prompt) {
+      return;
+    }
+
+    const userId = ctx.from?.id;
+    if (!userId) {
+      return;
+    }
+
+    const session = sessionStore.getSession(userId);
+    if (session?.activeTaskId) {
+      await ctx.reply("A task is already running. Send /stop first.");
+      return;
+    }
+
+    const taskId = randomUUID();
+    const msg = await ctx.reply("⏳ Working...");
+
+    const newSession = {
+      sessionId: session?.sessionId ?? randomUUID(),
+      activeTaskId: taskId,
+      lastMessageId: msg.message_id,
+      updatedAt: new Date().toISOString(),
+    };
+    sessionStore.setSession(userId, newSession);
+
+    const event: TaskNewEvent = {
+      taskId,
+      userId,
+      chatId: ctx.chat?.id ?? 0,
+      sessionId: newSession.sessionId,
+      prompt,
+      createdAt: new Date().toISOString(),
+    };
+
+    await redisStore.publishTaskNew(event);
+
+    const progressState = sessionStore.getProgress(taskId);
+    const updater = new ProgressUpdater(
+      ctx,
+      msg.message_id,
+      progressState,
+      cfg.PROGRESS_EDIT_INTERVAL_MS,
+    );
+
+    await redisStore.subscribeToProgress(taskId, (event: ProgressEvent) => {
+      updater.onProgressEvent(event);
+    });
+
+    await redisStore.subscribeToTaskComplete(taskId, async () => {
+      await updater.cleanup();
+      sessionStore.deleteProgress(taskId);
+      const sess = sessionStore.getSession(userId);
+      if (sess) {
+        sess.activeTaskId = null;
+        sessionStore.setSession(userId, sess);
+      }
+      try {
+        await ctx.api.deleteMessage(ctx.chatId, msg.message_id);
+      } catch {
+        // Ignore delete errors
+      }
+      await ctx.reply("✅ Task done");
+    });
+
+    await redisStore.subscribeToTaskError(taskId, async () => {
+      await updater.cleanup();
+      sessionStore.deleteProgress(taskId);
+      const sess = sessionStore.getSession(userId);
+      if (sess) {
+        sess.activeTaskId = null;
+        sessionStore.setSession(userId, sess);
+      }
+      try {
+        await ctx.api.deleteMessage(ctx.chatId, msg.message_id);
+      } catch {
+        // Ignore delete errors
+      }
+      await ctx.reply("❌ Task failed");
+    });
+  });
 
   console.log("✓ Bot initialized");
   await bot.start();

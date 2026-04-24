@@ -7,8 +7,10 @@ if (process.env.NODE_ENV !== "production") {
   config();
 }
 
-import { createRedisClient } from "@claude-remote/shared";
+import { CHANNELS, createRedisClient } from "@claude-remote/shared";
+import type { TaskNewEvent } from "@claude-remote/shared";
 import { parseConfig } from "./config.js";
+import { CCRunner } from "./runner.js";
 
 async function main() {
   const cfg = parseConfig();
@@ -31,17 +33,21 @@ async function main() {
     process.exit(1);
   }
 
-  try {
-    const redis = await createRedisClient(cfg.REDIS_URL, 3);
-    console.log("✓ Redis connected");
-    await redis.disconnect();
-  } catch (error) {
-    console.error(
-      "✗ Redis connection failed:",
-      error instanceof Error ? error.message : String(error),
-    );
-    process.exit(1);
-  }
+  const redis = await createRedisClient(cfg.REDIS_URL, 3);
+  console.log("✓ Redis connected");
+
+  const runner = new CCRunner(redis);
+
+  const sub = redis.duplicate();
+  sub.on("message", async (channel, message) => {
+    if (channel === CHANNELS.TASK_NEW) {
+      const event = JSON.parse(message) as TaskNewEvent;
+      await runner.executeTask(event);
+    }
+  });
+
+  await sub.subscribe(CHANNELS.TASK_NEW);
+  console.log("✓ cc-runner listening for tasks");
 }
 
 main().catch((error) => {

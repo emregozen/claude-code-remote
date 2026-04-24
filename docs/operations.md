@@ -145,6 +145,27 @@ docker compose build --no-cache
 docker compose up
 ```
 
+### Rotate the bot token
+
+When you rotate your bot token at @BotFather:
+
+1. Stop the bot:
+   ```bash
+   docker compose stop bot
+   ```
+
+2. Update `.env`:
+   ```bash
+   TELEGRAM_BOT_TOKEN=<new-token-from-BotFather>
+   ```
+
+3. Restart:
+   ```bash
+   docker compose up -d
+   ```
+
+Old token becomes invalid immediately. Existing sessions are not affected (stored in Redis/SQLite independently of the token).
+
 ---
 
 ## Troubleshooting

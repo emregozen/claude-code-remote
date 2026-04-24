@@ -86,14 +86,12 @@ Write a Python function that reverses a list
 
 ## Security
 
-⚠️ By default, CC runs with `--dangerously-skip-permissions`, meaning it can execute any code on your behalf.
+⚠️ **Important:** The bot can run any code on your behalf, including destructive commands. Only run on a project you control, and consider running the stack in a VM if the workspace contains sensitive data.
 
-**Risk:** The bot can run destructive commands.
-
-**Mitigations:**
+**Additional safeguards:**
 - Only allowlist Telegram user IDs you trust
-- Run the stack on a dedicated machine or VM
 - Review the evidence bundle output (shows full diffs)
+- Use rate limiting (30 commands per minute, 1 task at a time)
 
 ---
 

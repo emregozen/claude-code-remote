@@ -201,6 +201,9 @@ export async function createRunner(cfg: Config): Promise<Runner> {
           }
         }
 
+        // Ensure subprocess has fully exited (catches any deferred errors from kill)
+        await subprocess;
+
         clearTimeout(timeoutHandle);
 
         const durationMs = Date.now() - startTime;

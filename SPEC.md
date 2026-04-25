@@ -1,6 +1,7 @@
 # ClaudeRemote — MVP Technical Specification
 
-**Version:** 1.0
+**Version:** 2.1
+**Changelog:** v2.1 — switched authentication from API key to Claude Code's subscription credentials in `~/.claude/` volume mount.
 **Target:** Claude Code / GPT-Codex / equivalent agentic coder
 **Status:** authoritative — deviations go in `DEVIATIONS.md`
 
@@ -218,7 +219,6 @@ All configuration is via environment variables. There is no config file. The `.e
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | yes | Bot token from @BotFather. Must match `/^\d+:[A-Za-z0-9_-]+$/` |
 | `ALLOWLIST` | yes | Comma-separated Telegram numeric user IDs. Min 1 entry. Bot rejects all other senders silently. |
-| `ANTHROPIC_API_KEY` | yes | API key for Claude Code SDK. Must start with `sk-ant-` |
 | `WORKSPACE_PATH` | yes | Absolute host path to the user's project. Mounted into cc-runner at `/workspace`. Must be an existing directory. |
 | `REDIS_URL` | no | Default: `redis://redis:6379` (compose service name) |
 | `SQLITE_PATH` | no | Default: `/data/claude-remote.db` (mounted volume) |
@@ -246,6 +246,22 @@ const schema = z.object({
 });
 export const config = schema.parse(process.env);
 ```
+
+### 4.3 Authentication
+
+CC runner authenticates with Claude using Pro/Max subscription credentials stored in the user's Claude Code configuration directory, not via environment variables. This is more secure and aligns with how Claude Code itself authenticates.
+
+**First-time setup:** On a fresh deployment, the `cr_cc_home` Docker volume is empty. To authenticate:
+
+```bash
+docker compose run --rm cc-runner claude login
+```
+
+This launches an interactive login flow that prompts for the user's Claude account and stores the subscription credentials in `/root/.claude/config.json` inside the container (persisted to the `cr_cc_home` volume on the host). Once credentials are stored, subsequent `docker compose up` runs will use them automatically without prompting.
+
+**How it works:** The `cc-runner` container mounts the `cr_cc_home` volume at `/root/.claude/`, which maps to the user's Claude Code home directory. When CC SDK is invoked, it reads credentials from this directory. No environment variables are needed.
+
+**Credential refresh:** If credentials expire or need to be rotated, re-run the login command above.
 
 ---
 
@@ -702,7 +718,7 @@ CMD ["node", "packages/cc-runner/dist/index.js"]
 - All logs are structured JSON via pino, one line per event.
 - Every log line MUST include: `service` (`bot`|`cc-runner`), `taskId` (when relevant), `userId` (when relevant), `level`.
 - NEVER log the full prompt, assistant text, or diff content at info level or above. Truncate to 80 chars for info; full content only at debug.
-- NEVER log `TELEGRAM_BOT_TOKEN` or `ANTHROPIC_API_KEY`, even at trace level. Redact via pino redaction config.
+- NEVER log `TELEGRAM_BOT_TOKEN` or any credential, even at trace level. Redact via pino redaction config: use a pattern that removes any field name matching `*_TOKEN`, `*_KEY`, or `*_SECRET`.
 
 ### 10.2 Metrics (MVP scope: log-only)
 
@@ -736,6 +752,7 @@ This is the canonical list. Every criterion is a pass/fail statement. The MVP is
 | AC-02 | Config validation | Malformed `ALLOWLIST` (e.g., `foo,bar`) causes exit 1 with message containing `ALLOWLIST`. |
 | AC-03 | Boot order | Bot waits for redis to be healthy before starting long-poll. Verified by compose `depends_on` + healthcheck. |
 | AC-04 | Boot order | cc-runner verifies `/workspace` is a git repo; exits 1 if not, with clear error. |
+| AC-05 | Authentication | On a fresh `cr_cc_home` volume, `docker compose run --rm cc-runner claude login` completes the auth flow; subsequent `docker compose up` runs CC tasks without prompting for credentials. |
 
 ### 11.2 Authentication and security
 

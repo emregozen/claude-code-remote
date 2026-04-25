@@ -33,10 +33,21 @@ interface ClaudeMessage {
 
 export async function createRunner(cfg: Config): Promise<Runner> {
   const activeControllers = new Map<string, AbortController>();
+  const activeProcesses = new Map<string, any>();
 
   return {
     stopTask(taskId: string): void {
       const controller = activeControllers.get(taskId);
+      const subprocess = activeProcesses.get(taskId);
+
+      if (subprocess) {
+        try {
+          subprocess.kill();
+        } catch {
+          // Process already dead
+        }
+      }
+
       if (controller) {
         controller.abort();
       }
@@ -86,6 +97,8 @@ export async function createRunner(cfg: Config): Promise<Runner> {
           cwd: input.workspacePath,
           cancelSignal: ac.signal,
         });
+
+        activeProcesses.set(input.taskId, subprocess);
 
         let resultSessionId = input.sessionId;
 
@@ -195,10 +208,12 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         });
 
         activeControllers.delete(input.taskId);
+        activeProcesses.delete(input.taskId);
         return evidence;
       } catch (error) {
         clearTimeout(timeoutHandle);
         activeControllers.delete(input.taskId);
+        activeProcesses.delete(input.taskId);
         const message = error instanceof Error ? error.message : "Unknown error";
         throw new Error(`Task execution failed: ${message}`);
       }

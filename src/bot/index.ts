@@ -93,7 +93,7 @@ export async function initBot(
       console.log(`[command:/stop] Received from user ${ctx.from?.id}`);
       await handleStopCommand(ctx, sessionStore, sqliteStore, runner);
     } catch (error) {
-      console.error(`[command:/stop] Error:`, error);
+      console.error("[command:/stop] Error:", error);
       logger.error({ error }, "/stop command failed");
     }
   });
@@ -281,7 +281,7 @@ async function handleStopCommand(
 ) {
   const userId = ctx.from?.id;
   if (!userId) {
-    console.log(`[command:/stop] No userId found`);
+    console.log("[command:/stop] No userId found");
     return;
   }
 

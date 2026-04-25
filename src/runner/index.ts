@@ -41,15 +41,17 @@ export async function createRunner(cfg: Config): Promise<Runner> {
       const controller = activeControllers.get(taskId);
       const subprocess = activeProcesses.get(taskId);
 
-      console.log(`[runner:stopTask] Found subprocess: ${!!subprocess}, controller: ${!!controller}`);
+      console.log(
+        `[runner:stopTask] Found subprocess: ${!!subprocess}, controller: ${!!controller}`,
+      );
 
       if (subprocess) {
         try {
           console.log(`[runner:stopTask] Killing subprocess for task ${taskId}`);
           subprocess.kill();
-          console.log(`[runner:stopTask] Successfully killed subprocess`);
+          console.log("[runner:stopTask] Successfully killed subprocess");
         } catch (error) {
-          console.log(`[runner:stopTask] Error killing subprocess:`, error);
+          console.log("[runner:stopTask] Error killing subprocess:", error);
         }
       }
 
@@ -78,12 +80,7 @@ export async function createRunner(cfg: Config): Promise<Runner> {
       activeControllers.set(input.taskId, ac);
 
       try {
-        const args: string[] = [
-          "--print",
-          "--output-format=stream-json",
-          "--verbose",
-          input.prompt,
-        ];
+        const args: string[] = ["--print", "--output-format=stream-json", "--verbose"];
 
         if (input.sessionId) {
           args.push("--resume", input.sessionId);
@@ -98,6 +95,9 @@ export async function createRunner(cfg: Config): Promise<Runner> {
 
         const permissionMode = cfg.CC_SKIP_PERMISSIONS ? "bypassPermissions" : "default";
         args.push("--permission-mode", permissionMode);
+
+        // Prompt MUST be last argument
+        args.push(input.prompt);
 
         const subprocess = execa("claude", args, {
           cwd: input.workspacePath,

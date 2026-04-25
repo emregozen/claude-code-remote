@@ -66,88 +66,94 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         const subprocess = execa("claude", args, {
           cwd: input.workspacePath,
           cancelSignal: ac.signal,
-          all: true,
         });
 
         let resultSessionId = input.sessionId;
 
-        if (!subprocess.all) {
+        if (!subprocess.stdout) {
           throw new Error("Failed to create subprocess stream");
         }
 
-        for await (const line of subprocess.all) {
+        let buffer = "";
+        for await (const chunk of subprocess.stdout) {
           if (ac.signal.aborted) {
             break;
           }
 
-          if (!line.trim()) {
-            continue;
-          }
+          buffer += chunk;
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-          let event: ClaudeMessage;
-          try {
-            event = JSON.parse(line);
-          } catch {
-            continue;
-          }
-
-          if (event.type === "assistant" && event.message?.content) {
-            for (const block of event.message.content) {
-              if (block.type === "text" && block.text) {
-                accumulatedText = block.text;
-                const progressEvent: ProgressEvent = {
-                  taskId: input.taskId,
-                  kind: "text",
-                  delta: accumulatedText,
-                };
-                onProgress(progressEvent);
-              } else if (block.type === "tool_use" && block.name) {
-                const tool = block.name;
-                const toolCall: ToolCall = { tool };
-
-                if (tool === "Bash" && block.input?.command) {
-                  toolCall.command = String(block.input.command);
-                  lastBashCall = toolCall;
-                  toolCalls.push(toolCall);
-                }
-
-                const progressEvent: ProgressEvent = {
-                  taskId: input.taskId,
-                  kind: "tool_use",
-                  tool,
-                  summary: "...",
-                };
-                onProgress(progressEvent);
-              }
+          for (const line of lines) {
+            if (!line.trim()) {
+              continue;
             }
-          } else if (event.type === "user" && event.message?.content) {
-            for (const block of event.message.content) {
-              if (block.type === "tool_result") {
-                const isError = (block.is_error ?? false) as boolean;
-                const output = block.content as string | undefined;
 
-                if (lastBashCall) {
-                  lastBashCall.exitCode = isError ? 1 : 0;
-                  if (output) {
-                    lastBashCall.output = output;
+            let event: ClaudeMessage;
+            try {
+              event = JSON.parse(line);
+            } catch {
+              continue;
+            }
+
+            if (event.type === "assistant" && event.message?.content) {
+              for (const block of event.message.content) {
+                if (block.type === "text" && block.text) {
+                  accumulatedText = block.text;
+                  const progressEvent: ProgressEvent = {
+                    taskId: input.taskId,
+                    kind: "text",
+                    delta: accumulatedText,
+                  };
+                  onProgress(progressEvent);
+                } else if (block.type === "tool_use" && block.name) {
+                  const tool = block.name;
+                  const toolCall: ToolCall = { tool };
+
+                  if (tool === "Bash" && block.input?.command) {
+                    toolCall.command = String(block.input.command);
+                    lastBashCall = toolCall;
+                    toolCalls.push(toolCall);
                   }
-                  lastBashCall = null;
-                }
 
-                const progressEvent: ProgressEvent = {
-                  taskId: input.taskId,
-                  kind: "tool_result",
-                  tool: "tool_result",
-                  ok: !isError,
-                };
-                onProgress(progressEvent);
+                  const progressEvent: ProgressEvent = {
+                    taskId: input.taskId,
+                    kind: "tool_use",
+                    tool,
+                    summary: "...",
+                  };
+                  onProgress(progressEvent);
+                }
               }
+            } else if (event.type === "user" && event.message?.content) {
+              for (const block of event.message.content) {
+                if (block.type === "tool_result") {
+                  const isError = (block.is_error ?? false) as boolean;
+                  const output = block.content as string | undefined;
+
+                  if (lastBashCall) {
+                    lastBashCall.exitCode = isError ? 1 : 0;
+                    if (output) {
+                      lastBashCall.output = output;
+                    }
+                    lastBashCall = null;
+                  }
+
+                  const progressEvent: ProgressEvent = {
+                    taskId: input.taskId,
+                    kind: "tool_result",
+                    tool: "tool_result",
+                    ok: !isError,
+                  };
+                  onProgress(progressEvent);
+                }
+              }
+            } else if (event.type === "result") {
+              resultSessionId = event.session_id ?? input.sessionId;
+              tokensIn = event.usage?.input_tokens ?? 0;
+              tokensOut = event.usage?.output_tokens ?? 0;
+              costUsd = event.total_cost_usd ?? null;
             }
-          } else if (event.type === "result") {
-            resultSessionId = event.session_id ?? input.sessionId;
-            tokensIn = event.usage?.input_tokens ?? 0;
-            tokensOut = event.usage?.output_tokens ?? 0;
-            costUsd = event.total_cost_usd ?? null;
           }
         }
 

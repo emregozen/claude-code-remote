@@ -107,9 +107,18 @@ export async function initBot(
         sess.activeTaskId = null;
         sessionStore.setSession(userId, sess);
       }
-      await ctx.editMessageText(
-        `⏱ Task timed out after ${Math.round(cfg.TASK_TIMEOUT_MS / 60000)} minutes.`,
-      );
+
+      const timeoutMsg = `⏱ Task timed out after ${Math.round(cfg.TASK_TIMEOUT_MS / 60000)} minutes\\.`;
+      try {
+        await ctx.editMessageText(timeoutMsg);
+      } catch {
+        try {
+          await ctx.reply(timeoutMsg, { parse_mode: "MarkdownV2" });
+        } catch {
+          await ctx.reply("⏱ Task timed out");
+        }
+      }
+
       sqliteStore.updateTaskStatus(taskId, "timeout");
     }, cfg.TASK_TIMEOUT_MS);
 
@@ -146,7 +155,20 @@ export async function initBot(
 
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
       logger.error({ taskId, error: errorMsg }, "Task failed");
-      await ctx.editMessageText(`💥 Error: ${errorMsg}`);
+
+      const escapedError = errorMsg.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, (c) => `\\${c}`);
+      const errorText = `💥 Error: ${escapedError}`;
+
+      try {
+        await ctx.editMessageText(errorText);
+      } catch {
+        try {
+          await ctx.reply(errorText, { parse_mode: "MarkdownV2" });
+        } catch {
+          await ctx.reply("❌ Task failed (error details unavailable)");
+        }
+      }
+
       sqliteStore.updateTaskStatus(taskId, "error");
     }
   });

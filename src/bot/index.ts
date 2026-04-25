@@ -223,51 +223,55 @@ export async function initBot(
       updater.onProgressEvent(event);
     };
 
-    try {
-      const evidence = await runner.runTask(taskInput, onProgress);
+    // Run task in background without blocking so /stop can be processed
+    runner
+      .runTask(taskInput, onProgress)
+      .then((evidence) => {
+        clearTimeout(timeoutTimer);
+        updater.cleanup();
+        sessionStore.deleteProgress(taskId);
 
-      clearTimeout(timeoutTimer);
-      await updater.cleanup();
-      sessionStore.deleteProgress(taskId);
-
-      const sess = sessionStore.getSession(userId);
-      if (sess) {
-        sess.sessionId = evidence.sessionId;
-        sess.activeTaskId = null;
-        sessionStore.setSession(userId, sess);
-      }
-
-      await ctx.deleteMessage();
-      await ctx.reply(renderEvidence(evidence, prompt), { parse_mode: "MarkdownV2" });
-      sqliteStore.updateTaskStatus(taskId, "complete", evidence);
-    } catch (error) {
-      clearTimeout(timeoutTimer);
-      await updater.cleanup();
-      sessionStore.deleteProgress(taskId);
-      const sess = sessionStore.getSession(userId);
-      if (sess) {
-        sess.activeTaskId = null;
-        sessionStore.setSession(userId, sess);
-      }
-
-      const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      logger.error({ taskId, error: errorMsg }, "Task failed");
-
-      const escapedError = errorMsg.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, (c) => `\\${c}`);
-      const errorText = `💥 Error: ${escapedError}`;
-
-      try {
-        await ctx.editMessageText(errorText);
-      } catch {
-        try {
-          await ctx.reply(errorText, { parse_mode: "MarkdownV2" });
-        } catch {
-          await ctx.reply("❌ Task failed (error details unavailable)");
+        const sess = sessionStore.getSession(userId);
+        if (sess) {
+          sess.sessionId = evidence.sessionId;
+          sess.activeTaskId = null;
+          sessionStore.setSession(userId, sess);
         }
-      }
 
-      sqliteStore.updateTaskStatus(taskId, "error");
-    }
+        ctx.deleteMessage().catch(() => {
+          // Already deleted or doesn't exist
+        });
+        ctx.reply(renderEvidence(evidence, prompt), { parse_mode: "MarkdownV2" }).catch((e) => {
+          logger.error({ error: e }, "Failed to send evidence message");
+        });
+        sqliteStore.updateTaskStatus(taskId, "complete", evidence);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutTimer);
+        updater.cleanup();
+        sessionStore.deleteProgress(taskId);
+        const sess = sessionStore.getSession(userId);
+        if (sess) {
+          sess.activeTaskId = null;
+          sessionStore.setSession(userId, sess);
+        }
+
+        const errorMsg = error instanceof Error ? error.message : "Unknown error";
+        logger.error({ taskId, error: errorMsg }, "Task failed");
+
+        const escapedError = errorMsg.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, (c) => `\\${c}`);
+        const errorText = `💥 Error: ${escapedError}`;
+
+        ctx.editMessageText(errorText).catch(() => {
+          ctx.reply(errorText, { parse_mode: "MarkdownV2" }).catch(() => {
+            ctx.reply("❌ Task failed (error details unavailable)").catch(() => {
+              // Silent fail
+            });
+          });
+        });
+
+        sqliteStore.updateTaskStatus(taskId, "error");
+      });
   });
 
   return bot;

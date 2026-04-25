@@ -257,15 +257,16 @@ export async function initBot(
         }
 
         // Check if task was cancelled by user (via /stop command)
-        if (error instanceof Error && error.message.includes("canceled")) {
+        const isCanceled =
+          (error as any)?.isCanceled === true ||
+          (error instanceof Error && error.message.includes("canceled"));
+        if (isCanceled) {
           console.log(`[task:${taskId}] Task was cancelled by user`);
-          ctx
-            .editMessageText("⏹️ Task cancelled.")
-            .catch(() => {
-              ctx.reply("⏹️ Task cancelled.").catch(() => {
-                // Silent fail
-              });
+          ctx.editMessageText("⏹️ Task cancelled.").catch(() => {
+            ctx.reply("⏹️ Task cancelled.").catch(() => {
+              // Silent fail
             });
+          });
           sqliteStore.updateTaskStatus(taskId, "error");
         } else {
           const errorMsg = error instanceof Error ? error.message : "Unknown error";

@@ -226,6 +226,12 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         clearTimeout(timeoutHandle);
         activeControllers.delete(input.taskId);
         activeProcesses.delete(input.taskId);
+
+        // Preserve cancellation errors as-is
+        if ((error as any)?.isCanceled) {
+          throw error;
+        }
+
         const message = error instanceof Error ? error.message : "Unknown error";
         throw new Error(`Task execution failed: ${message}`);
       }

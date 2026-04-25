@@ -1,162 +1,211 @@
-# ClaudeRemote — MVP
+# ClaudeRemote
 
-Remote control Claude Code via Telegram. Send prompts from your phone, receive streaming progress and structured evidence bundles.
+Mobile-first remote control for Claude Code via Telegram. Run Claude Code tasks from your phone or desktop and receive streamed progress updates.
 
-**Status:** MVP (Minimum Viable Product)  
-**Latest Release:** v0.1.0-mvp
+## What it does
 
----
+- Send text prompts to Claude Code via Telegram
+- Receive real-time progress updates as tasks run
+- Get structured evidence bundles with diffs, test results, and summaries
+- Maintain persistent sessions across messages
+- Run on your local machine without Docker or containers
 
-## What It Does
+## Prerequisites
 
-ClaudeRemote is a Telegram bot that wraps Claude Code, allowing you to:
+- **Node.js 20.x LTS** — install from https://nodejs.org/
+- **Git** — required for workspace diff collection and session management
+- **Claude Code CLI** authenticated on your machine
+  ```bash
+  which claude  # verify installation
+  claude login  # authenticate with your Claude Pro/Max account
+  claude --version  # verify authentication
+  ```
+- **Telegram bot token** from @BotFather
+- **Your Telegram numeric user ID** (use @userinfobot)
+- **Absolute path** to a local git repository to work with
 
-1. Send a natural-language prompt via Telegram message
-2. Watch real-time progress (tool calls, text output) edit into a single message
-3. Receive a formatted evidence bundle showing what changed: diffs, test results, token costs
-4. Maintain session continuity: subsequent messages continue the same CC session with full context
+## Security & Permissions
 
----
+⚠️ **IMPORTANT: This bot can run ANY code on your behalf**, including destructive commands like `rm -rf`. Only use ClaudeRemote with:
+- Projects you own and trust
+- Code that won't hurt if modified
+- Workspace on a dedicated machine or VM if it contains sensitive data
 
-## Requirements
+The bot runs Claude Code with `--dangerously-skip-permissions` by default. No approval prompts. All tool use is automatic.
 
-- Docker & Docker Compose (for containerized services)
-- Node.js 20+ (to build the images)
-- Telegram Bot Token (create via @BotFather)
-- Claude Pro or Max subscription (for authentication via `claude login`)
-- Project Directory (absolute path to a git repository you own)
+## Installation
 
----
+1. Clone the repository:
+   ```bash
+   git clone <repo-url> claude-remote
+   cd claude-remote
+   ```
 
-## Quick Start
+2. Install dependencies:
+   ```bash
+   npm install
+   npm run build
+   ```
 
-### 1. Clone and configure
+3. Create `.env` from the example:
+   ```bash
+   cp .env.example .env
+   ```
 
+4. Edit `.env` with your configuration:
+   ```
+   TELEGRAM_BOT_TOKEN=<your_bot_token_from_@BotFather>
+   ALLOWLIST=<your_telegram_user_id>
+   WORKSPACE_PATH=/absolute/path/to/your/git/repo
+   ```
+
+## Running
+
+### Foreground (for testing):
 ```bash
-git clone <this-repo> claude-remote
-cd claude-remote
-cp .env.example .env
+npm start
 ```
 
-### 2. Fill .env
+Logs appear in your terminal. Press Ctrl+C to stop.
 
-```env
-TELEGRAM_BOT_TOKEN=<bot_token>
-ALLOWLIST=<your-user-id>
-WORKSPACE_PATH=/absolute/path/to/your/project
-```
+### Background (production):
 
-To find your Telegram user ID: Message @userinfobot.
-
-WORKSPACE_PATH must:
-- Be an absolute filesystem path
-- Point to an existing git repository
-- Be readable and writable by Docker
-
-### 3. Authenticate with Claude (first time only)
-
-Run the interactive login to store your Claude Pro/Max credentials:
-
+**Using systemd user service:**
 ```bash
-docker compose run --rm cc-runner claude login
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/claude-remote.service << 'EOF'
+[Unit]
+Description=ClaudeRemote Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/claude-remote
+ExecStart=/usr/bin/node dist/index.js
+Restart=unless-stopped
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user enable claude-remote
+systemctl --user start claude-remote
+journalctl --user -f -u claude-remote  # view logs
 ```
 
-This launches the Claude login flow. Sign in with your Claude account, and credentials are saved to a Docker volume (`cr_cc_home`) that persists across restarts. You only need to do this once.
-
-### 4. Start the stack
-
+**Using pm2:**
 ```bash
-docker compose up
+npm install -g pm2
+pm2 start dist/index.js --name claude-remote
+pm2 startup
+pm2 save
 ```
-
-### 5. Send a message
-
-Message the bot on Telegram:
-```
-/start
-```
-
-Then send any text prompt:
-```
-Write a Python function that reverses a list
-```
-
----
-
-## Commands
-
-- `/start` — Initialize session
-- `/help` — Show command list
-- `/status` — Show current session info
-- `/stop` — Cancel the running task
-- `/new` — Clear session, start fresh
-
----
-
-## Security
-
-⚠️ **Important:** The bot can run any code on your behalf, including destructive commands. Only run on a project you control, and consider running the stack in a VM if the workspace contains sensitive data.
-
-**Additional safeguards:**
-- Only allowlist Telegram user IDs you trust
-- Review the evidence bundle output (shows full diffs)
-- Use rate limiting (30 commands per minute, 1 task at a time)
-
----
 
 ## Configuration
 
-See `.env.example` for all options.
+All configuration is via `.env`. See `.env.example` for all options:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| TELEGRAM_BOT_TOKEN | (required) | Bot authentication |
-| ALLOWLIST | (required) | Comma-separated user IDs |
-| WORKSPACE_PATH | (required) | Project directory |
-| REDIS_URL | redis://redis:6379 | Redis pub/sub |
-| SQLITE_PATH | /data/claude-remote.db | Task history |
-| PROGRESS_EDIT_INTERVAL_MS | 3000 | Progress update interval (min 1500) |
-| TASK_TIMEOUT_MS | 1800000 | Task timeout (30 min default) |
-| CC_SKIP_PERMISSIONS | true | Use bypassPermissions mode |
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | yes | — | From @BotFather |
+| `ALLOWLIST` | yes | — | Comma-separated Telegram user IDs |
+| `WORKSPACE_PATH` | yes | — | Absolute path to git repo |
+| `SQLITE_PATH` | no | `./data/claude-remote.db` | Task history database |
+| `LOG_LEVEL` | no | `info` | `trace`, `debug`, `info`, `warn`, `error` |
+| `PROGRESS_EDIT_INTERVAL_MS` | no | `3000` | Min 1500ms (Telegram rate limit) |
+| `TASK_TIMEOUT_MS` | no | `1800000` | 30 min default |
+| `HOOK_HTTP_PORT` | no | `4711` | Hook server bind port |
+| `CC_SKIP_PERMISSIONS` | no | `true` | Bypass CC permission prompts |
 
----
+## Commands
+
+| Command | Action |
+|---|---|
+| `/start` | Initialize a new session |
+| `/help` | Show help and command list |
+| `/status` | Show current session status |
+| `/stop` | Cancel the running task |
+| `/new` | Clear session and start fresh |
+| *text message* | Send a prompt to Claude Code |
+
+## How it works
+
+1. You send a text message to the bot
+2. Bot creates a task and calls Claude Code SDK
+3. Progress updates stream back and edit a single "Working..." message
+4. When done, bot posts an evidence bundle with:
+   - Summary of changes made
+   - Git diff (files changed, +/- counts)
+   - Test results (if tests were run)
+   - Token usage and duration
+5. Session is persisted so follow-up prompts have context
+
+## Data & Logs
+
+- **SQLite database**: `./data/claude-remote.db` (created automatically)
+  - Stores task history, prompts, and results
+  - Reset with: `rm ./data/claude-remote.db` (careful!)
+- **Logs**: stdout in foreground, `journalctl` if using systemd
+  - All logs are structured JSON for easy parsing
 
 ## Troubleshooting
 
-**Bot doesn't respond:**
-- Check logs: `docker compose logs bot`
-- Verify token: Copy carefully from @BotFather
-- Verify allowlist: Confirm your user ID
+**"Claude CLI not found or not authenticated"**
+- Run `claude login` on the host
+- Verify with `claude --version`
+- Make sure you're using the same user account
 
-**Task never completes:**
-- Check timeout: Default is 30 min
-- Verify WORKSPACE_PATH: Must exist and be a git repo
-- Check logs: `docker compose logs cc-runner`
+**"Task timed out"**
+- Increase `TASK_TIMEOUT_MS` in `.env`
+- Check if the task is actually stuck (review terminal output)
 
-**"A task is already running":**
-- Send `/stop` first, then retry
+**Settings.json was modified and not restored**
+- ClaudeRemote modifies `~/.claude/settings.json` to register hooks
+- On graceful shutdown, the original is restored
+- If the process crashed, manually restore from backup:
+  ```bash
+  # Check if backup exists
+  ls ~/.claude/settings.json.backup.cr
+  # Restore it
+  cp ~/.claude/settings.json.backup.cr ~/.claude/settings.json
+  ```
 
----
+**"A task is already running"**
+- Send `/stop` to cancel the current task
+- Use `/new` to clear the session entirely
 
-## See Also
+**Database is locked**
+- Stop the process: `systemctl --user stop claude-remote` or press Ctrl+C
+- Delete the lock file: `rm ./data/claude-remote.db-wal`
+- Start again
 
-- `docs/operations.md` — Logging, backups, debugging
-- `docs/troubleshooting.md` — Common issues and fixes
-- `SPEC.md` — Full technical specification
-- `DEVIATIONS.md` — Implementation notes
+## Development
 
----
+```bash
+npm run dev        # Run with tsx (hot reload)
+npm run build      # TypeScript → JavaScript
+npm run typecheck  # Type checking
+npm run lint       # Linting with Biome
+npm run format     # Auto-format
+npm run test       # Unit tests (vitest)
+```
 
 ## Architecture
 
-The stack consists of:
-- **bot** (Node.js): Telegram long-poll, session management, task orchestration
-- **cc-runner** (Node.js): Claude Code SDK wrapper, progress streaming, evidence collection
-- **redis** (service): Pub/sub for inter-service communication, session state
-- **sqlite** (file): Task history and recovery
+Single Node.js process containing:
+- **Bot**: grammY framework, Telegram long-polling, command handlers
+- **Runner**: Claude Code SDK wrapper, progress event streaming
+- **Store**: SQLite3 for persistent task history, in-memory Map for sessions
+- **Hook Server**: Fastify on 127.0.0.1:4711, receives Stop hook callbacks
 
----
+No external services required (no Redis, no separate containers).
 
 ## License
 
-[Your license here]
+MIT
+
+---
+
+For detailed technical specs, see `SPEC.md`.

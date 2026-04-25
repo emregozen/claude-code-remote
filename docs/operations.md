@@ -1,283 +1,176 @@
 # Operations Guide
 
-How to run, maintain, and debug ClaudeRemote in production.
+## Viewing Logs
 
----
+### Foreground (during `npm start`)
+Logs print to stdout in structured JSON format via Pino.
 
-## Logs
+### Background (systemd)
+```bash
+journalctl --user -f -u claude-remote
+journalctl --user -n 100 -u claude-remote  # last 100 lines
+```
 
-### View logs
+### Background (pm2)
+```bash
+pm2 logs claude-remote
+pm2 logs claude-remote --lines 100
+```
+
+## Resetting State
+
+**Delete task history:**
+```bash
+rm ./data/claude-remote.db
+rm ./data/claude-remote.db-wal  # remove lock file if database is locked
+```
+
+**Clear a user's session:**
+Stop the process and edit the SQLite database (requires sqlite3 CLI):
+```bash
+sqlite3 ./data/claude-remote.db "DELETE FROM tasks WHERE user_id = 123456789;"
+```
+
+## Re-authenticating Claude Code
+
+If Claude Code credentials expire or need to be refreshed:
 
 ```bash
-# All services
-docker compose logs -f
-
-# Specific service
-docker compose logs -f bot
-docker compose logs -f cc-runner
-docker compose logs -f redis
-
-# Last 100 lines
-docker compose logs --tail=100 bot
+claude login
 ```
 
-Logs are structured JSON (pino format). Example:
+Then restart ClaudeRemote. The new credentials will be picked up automatically.
 
-```json
-{"level":20,"time":"2026-04-25T00:10:51.123Z","service":"bot","prompt":"add login endpoint","taskId":"abc-def-123"}
-```
+## Verifying Hook Server
 
-### Log levels
+The hook HTTP server binds to `127.0.0.1:4711` (default) and should NOT be exposed to the internet.
 
-Control via `LOG_LEVEL` env var:
-- `trace` — Everything (very noisy)
-- `debug` — Development details
-- `info` — Key milestones (default)
-- `warn` — Warnings only
-- `error` — Errors only
-
----
-
-## Data & Recovery
-
-### SQLite database
-
-Task history stored in `/data/claude-remote.db` (inside container, mapped to host volume).
-
-**Backup:**
+Verify it's running and bound correctly:
 ```bash
-# Copy the database file
-docker compose exec bot cp /data/claude-remote.db /tmp/backup-$(date +%s).db
-docker compose cp <container>:/tmp/backup-*.db .
+netstat -tnlp | grep 4711
+# or on systems without netstat:
+ss -tnlp | grep 4711
 ```
 
-**Recovery:**
-If the database is corrupted:
-```bash
-# Stop the stack
-docker compose down
-
-# Delete the corrupted database
-rm /data/claude-remote.db
-
-# Start again (bot will recreate empty database)
-docker compose up
+Expected output shows `127.0.0.1:4711` (NOT `0.0.0.0:4711`):
+```
+tcp  0  0  127.0.0.1:4711  0.0.0.0:*  LISTEN  <pid>/node
 ```
 
-Tasks will be marked as "error" on next bot startup (recovery sweep).
+## Recovering from Settings.json Issues
 
-### Redis data
+ClaudeRemote modifies `~/.claude/settings.json` on startup to register the Stop hook, and restores it on graceful shutdown.
 
-Session state and pub/sub messages are ephemeral. On restart, users must resend prompts.
+If the process crashes ungracefully:
 
-**If Redis is lost:**
-```bash
-docker compose down
-docker volume rm claude-remote_redis_data  # if persistent volume exists
-docker compose up
-```
-
----
-
-## Monitoring
-
-### Check service health
-
-```bash
-# Is bot listening?
-docker compose logs bot | grep "Bot initialized"
-
-# Is redis healthy?
-docker compose logs redis | grep "ready to accept"
-
-# Is cc-runner ready?
-docker compose logs cc-runner | grep "listening for tasks"
-```
-
-### Check performance
-
-Watch real-time logs and look for:
-- Timeout messages (`Task exceeded timeout`)
-- Crash messages (`Claude Code crashed`)
-- High token usage (`tokensIn`, `tokensOutput` in evidence bundles)
-
----
-
-## Stopping & Restarting
-
-### Graceful shutdown
-
-```bash
-# Bot and cc-runner will receive SIGTERM
-# In-flight tasks are marked as "error" in sqlite
-docker compose down
-```
-
-### Quick restart (reload code)
-
-```bash
-docker compose restart
-```
-
----
-
-## Updating
-
-### Pull latest code
-
-```bash
-git pull origin main
-```
-
-### Rebuild images
-
-```bash
-docker compose build --no-cache
-docker compose up
-```
-
-### Update dependencies
-
-```bash
-npm update
-npm run build
-docker compose build --no-cache
-docker compose up
-```
-
-### Rotate the bot token
-
-When you rotate your bot token at @BotFather:
-
-1. Stop the bot:
+1. Check for the backup:
    ```bash
-   docker compose stop bot
+   ls ~/.claude/settings.json.backup.cr
    ```
 
-2. Update `.env`:
+2. If it exists, restore it:
    ```bash
-   TELEGRAM_BOT_TOKEN=<new-token-from-BotFather>
+   cp ~/.claude/settings.json.backup.cr ~/.claude/settings.json
    ```
 
-3. Restart:
+3. Verify the file is valid JSON:
    ```bash
-   docker compose up -d
+   cat ~/.claude/settings.json | jq .
    ```
 
-Old token becomes invalid immediately. Existing sessions are not affected (stored in Redis/SQLite independently of the token).
+4. If restoration failed, manually edit `~/.claude/settings.json` to remove the Stop hook we added.
 
-### Re-authenticating Claude Code
+## Rotating Bot Token
 
-If Claude Code credentials expire or you need to switch accounts:
+If you need to rotate your Telegram bot token:
 
-1. Stop the stack:
+1. Create a new bot with @BotFather
+2. Update `.env` with the new token:
+   ```
+   TELEGRAM_BOT_TOKEN=<new_token>
+   ```
+3. Restart ClaudeRemote:
    ```bash
-   docker compose down
+   systemctl --user restart claude-remote
+   # or if using pm2:
+   pm2 restart claude-remote
    ```
 
-2. Re-run the interactive login:
-   ```bash
-   docker compose run --rm cc-runner claude login
-   ```
+The old bot token will stop working, and new messages will arrive via the new token.
 
-3. Follow the prompts to sign in with your Claude account. New credentials overwrite the old ones in the `cr_cc_home` volume.
+## Monitoring Disk Usage
 
-4. Restart:
-   ```bash
-   docker compose up
-   ```
-
-**Resetting all credentials** (nuclear option):
-
-If you want to clear all stored credentials and start fresh:
-
+Task history is stored in SQLite. Check database size:
 ```bash
-# Remove the credentials volume
-docker compose down
-docker volume rm claude-remote_cr_cc_home
-
-# Re-authenticate
-docker compose run --rm cc-runner claude login
-
-# Start normally
-docker compose up
+du -h ./data/claude-remote.db
 ```
 
----
+To reduce size, delete old completed tasks:
+```bash
+sqlite3 ./data/claude-remote.db "DELETE FROM tasks WHERE status = 'complete' AND started_at < datetime('now', '-30 days');"
+```
+
+## Backup
+
+To back up task history:
+```bash
+cp ./data/claude-remote.db ./data/claude-remote.db.backup.$(date +%Y%m%d-%H%M%S)
+```
+
+Restore from a backup:
+```bash
+cp ./data/claude-remote.db.backup.20240101-120000 ./data/claude-remote.db
+```
+
+## Performance Tuning
+
+### Increase progress update frequency
+Lower `PROGRESS_EDIT_INTERVAL_MS` (minimum 1500ms):
+```
+PROGRESS_EDIT_INTERVAL_MS=1500
+```
+
+### Increase task timeout
+If tasks are timing out prematurely, increase `TASK_TIMEOUT_MS`:
+```
+TASK_TIMEOUT_MS=3600000  # 1 hour
+```
+
+### Adjust log verbosity
+Change `LOG_LEVEL` for more/less output:
+```
+LOG_LEVEL=debug  # very verbose
+LOG_LEVEL=warn   # only warnings and errors
+```
 
 ## Troubleshooting
 
-### High memory usage
-
-- Check if a task is stuck: `docker compose logs cc-runner`
-- Restart the stack: `docker compose restart`
-- Check `TASK_TIMEOUT_MS` — reduce if tasks are getting too large
-
-### Redis connectivity issues
-
+### "Cannot find module '@anthropic-ai/claude-code'"
+The SDK dependency is missing. Reinstall:
 ```bash
-docker compose logs redis
-docker compose restart redis
+npm install
+npm run build
 ```
 
-### Bot token invalid
+### "EADDRINUSE: address already in use :::4711"
+The hook server port is already bound. Either:
+- Kill the process using it: `lsof -i :4711`
+- Use a different port: set `HOOK_HTTP_PORT=4712`
 
-Ensure `TELEGRAM_BOT_TOKEN` in `.env` is copied exactly from @BotFather (no spaces).
-
-### Workspace mounting issues
-
-Verify `WORKSPACE_PATH` exists and is readable:
+### SQLite "database is locked"
+The database is being written to by another process. Stop ClaudeRemote:
 ```bash
-ls -la $WORKSPACE_PATH
-git -C $WORKSPACE_PATH rev-parse --git-dir  # confirm it's a git repo
+systemctl --user stop claude-remote
 ```
 
----
-
-## Upgrading
-
-Before upgrading:
-1. Back up `/data/claude-remote.db`
-2. Test on a staging environment first
-3. Plan for a brief downtime
-
-Steps:
+Then remove the lock file:
 ```bash
-docker compose down
-git pull origin main
-docker compose build
-docker compose up
+rm ./data/claude-remote.db-wal
 ```
 
----
+And restart.
 
-## Cleanup
-
-### Remove old images
-
-```bash
-docker system prune -a
-```
-
-### Remove all data (reset state)
-
-```bash
-docker compose down -v
-rm /data/claude-remote.db
-docker compose up
-```
-
----
-
-## Metrics
-
-The bot emits structured log events for metrics:
-
-```json
-{"level":20,"type":"task.started","taskId":"...","userId":123}
-{"level":20,"type":"task.completed","taskId":"...","durationMs":5000,"tokensIn":1000,"tokensOut":500,"costUsd":0.001}
-{"level":20,"type":"task.timeout","taskId":"...","durationMs":30000}
-{"level":20,"type":"task.error","taskId":"...","kind":"cc_crash"}
-```
-
-Parse these logs to build dashboards or alerts (e.g., via ELK, Prometheus, DataDog).
+### Bot not responding to messages
+1. Verify `TELEGRAM_BOT_TOKEN` is correct: send `/help` via Telegram
+2. Verify `ALLOWLIST` includes your user ID: use @userinfobot in Telegram
+3. Check logs for errors: `journalctl --user -f -u claude-remote`

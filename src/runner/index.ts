@@ -6,6 +6,7 @@ import { collectEvidence } from "./evidence/collector.js";
 
 export interface Runner {
   runTask(input: TaskInput, onProgress: ProgressCallback): Promise<EvidenceBundle>;
+  stopTask(taskId: string): void;
 }
 
 interface ContentBlock {
@@ -31,7 +32,16 @@ interface ClaudeMessage {
 }
 
 export async function createRunner(cfg: Config): Promise<Runner> {
+  const activeControllers = new Map<string, AbortController>();
+
   return {
+    stopTask(taskId: string): void {
+      const controller = activeControllers.get(taskId);
+      if (controller) {
+        controller.abort();
+      }
+    },
+
     async runTask(input: TaskInput, onProgress: ProgressCallback): Promise<EvidenceBundle> {
       console.log(`[task:${input.taskId}] Starting execution`);
 
@@ -47,6 +57,8 @@ export async function createRunner(cfg: Config): Promise<Runner> {
       const timeoutHandle = setTimeout(() => {
         ac.abort();
       }, cfg.TASK_TIMEOUT_MS);
+
+      activeControllers.set(input.taskId, ac);
 
       try {
         const args: string[] = [
@@ -182,9 +194,11 @@ export async function createRunner(cfg: Config): Promise<Runner> {
           durationMs,
         });
 
+        activeControllers.delete(input.taskId);
         return evidence;
       } catch (error) {
         clearTimeout(timeoutHandle);
+        activeControllers.delete(input.taskId);
         const message = error instanceof Error ? error.message : "Unknown error";
         throw new Error(`Task execution failed: ${message}`);
       }

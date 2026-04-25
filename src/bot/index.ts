@@ -90,7 +90,7 @@ export async function initBot(
   });
   bot.command("stop", async (ctx) => {
     try {
-      await handleStopCommand(ctx, sessionStore, sqliteStore);
+      await handleStopCommand(ctx, sessionStore, sqliteStore, runner);
     } catch (error) {
       logger.error({ error }, "/stop command failed");
     }
@@ -275,6 +275,7 @@ async function handleStopCommand(
   ctx: Context,
   sessionStore: SessionStore,
   sqliteStore: SQLiteStore,
+  runner: Runner,
 ) {
   const userId = ctx.from?.id;
   if (!userId) {
@@ -291,6 +292,7 @@ async function handleStopCommand(
   session.activeTaskId = null;
   sessionStore.setSession(userId, session);
 
+  runner.stopTask(taskId);
   sqliteStore.updateTaskStatus(taskId, "error");
   console.log(`[command:/stop] User ${userId} stopped task ${taskId}`);
   await ctx.reply("Task cancelled.");

@@ -65,7 +65,7 @@ export async function createRunner(cfg: Config): Promise<Runner> {
 
         const subprocess = execa("claude", args, {
           cwd: input.workspacePath,
-          signal: ac.signal,
+          cancelSignal: ac.signal,
           all: true,
         });
 

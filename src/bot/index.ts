@@ -11,6 +11,7 @@ import { SessionStore } from "../store/session.js";
 import type { EvidenceBundle, ProgressCallback, TaskInput } from "../types.js";
 import { allowlistMiddleware } from "./auth.js";
 import { renderEvidence } from "./evidence.js";
+import { handleClaudeCommand } from "./handlers/claude-commands.js";
 import {
   handleBudget,
   handleEffort,
@@ -44,6 +45,7 @@ export async function initBot(
   bot.command("model", (ctx) => handleModel(ctx, sessionStore));
   bot.command("effort", (ctx) => handleEffort(ctx, sessionStore));
   bot.command("budget", (ctx) => handleBudget(ctx, sessionStore));
+  bot.command("claude", (ctx) => handleClaudeCommand(ctx, sessionStore));
   bot.command("stop", (ctx) => handleStopCommand(ctx, sessionStore, sqliteStore));
   bot.command("new", (ctx) => handleNewCommand(ctx, sessionStore, sqliteStore));
 

@@ -8,6 +8,7 @@ export interface TaskInput {
   prompt: string;
   workspacePath: string;
   startSha: string;
+  model: string;
 }
 
 export type ProgressEvent =

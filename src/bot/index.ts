@@ -11,7 +11,14 @@ import { SessionStore } from "../store/session.js";
 import type { EvidenceBundle, ProgressCallback, TaskInput } from "../types.js";
 import { allowlistMiddleware } from "./auth.js";
 import { renderEvidence } from "./evidence.js";
-import { handleHelp, handleStart, handleStatus } from "./handlers/command.js";
+import {
+  handleHelp,
+  handleModel,
+  handleNew,
+  handleStart,
+  handleStatus,
+  handleStop,
+} from "./handlers/command.js";
 import { ProgressUpdater } from "./progress.js";
 import { RateLimiter } from "./rate-limit.js";
 
@@ -32,6 +39,7 @@ export async function initBot(
   bot.command("start", handleStart);
   bot.command("help", handleHelp);
   bot.command("status", handleStatus);
+  bot.command("model", (ctx) => handleModel(ctx, sessionStore));
   bot.command("stop", (ctx) => handleStopCommand(ctx, sessionStore, sqliteStore));
   bot.command("new", (ctx) => handleNewCommand(ctx, sessionStore, sqliteStore));
 
@@ -57,11 +65,13 @@ export async function initBot(
 
     const ccSessionId = session?.sessionId ?? null;
 
+    const currentSession = sessionStore.getSession(userId);
     const newSession = {
       sessionId: ccSessionId,
       activeTaskId: taskId,
       lastMessageId: msg.message_id,
       updatedAt: new Date().toISOString(),
+      model: currentSession?.model ?? "sonnet",
     };
     sessionStore.setSession(userId, newSession);
 
@@ -78,6 +88,7 @@ export async function initBot(
       prompt,
       workspacePath: cfg.WORKSPACE_PATH,
       startSha,
+      model: newSession.model,
     };
 
     sqliteStore.insertTask({
@@ -221,6 +232,7 @@ async function handleNewCommand(
     activeTaskId: null,
     lastMessageId: 0,
     updatedAt: new Date().toISOString(),
+    model: session?.model ?? "sonnet",
   });
 
   await ctx.reply("Session cleared.");

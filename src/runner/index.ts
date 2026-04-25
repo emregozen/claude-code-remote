@@ -60,6 +60,8 @@ export async function createRunner(cfg: Config): Promise<Runner> {
           args.push("--resume", input.sessionId);
         }
 
+        args.push("--model", input.model);
+
         const permissionMode = cfg.CC_SKIP_PERMISSIONS ? "bypassPermissions" : "default";
         args.push("--permission-mode", permissionMode);
 

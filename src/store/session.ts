@@ -3,6 +3,7 @@ export interface SessionState {
   activeTaskId: string | null;
   lastMessageId: number | null;
   updatedAt: string;
+  model: string;
 }
 
 export interface ProgressState {

@@ -1,5 +1,4 @@
-import type { EvidenceBundle } from "@claude-remote/shared";
-
+import type { EvidenceBundle } from "../../types.js";
 import { getGitDiff } from "./git.js";
 
 const TEST_PATTERNS = [
@@ -29,18 +28,18 @@ function isTestCommand(command: string): boolean {
 export async function collectEvidence(options: {
   taskId: string;
   sessionId: string;
-  taskStartSha: string;
-  lastAssistantText: string;
-  tokensIn: number;
-  tokensOut: number;
-  costUsd: number | null;
-  durationMs: number;
+  summary: string;
+  startSha: string;
   workspacePath: string;
   toolCalls: ToolCall[];
+  tokensIn: number;
+  tokensOutput: number;
+  costUsd: number | null;
+  durationMs: number;
 }): Promise<EvidenceBundle> {
-  const diff = await getGitDiff(options.taskStartSha, options.workspacePath);
+  const diff = await getGitDiff(options.startSha, options.workspacePath);
 
-  const summary = options.lastAssistantText.slice(-1500) || "Task completed. See diff for changes.";
+  const summary = options.summary.slice(-1500) || "Task completed. See diff for changes.";
 
   let tests: EvidenceBundle["tests"] = null;
   const lastTestCall = [...options.toolCalls]
@@ -66,7 +65,7 @@ export async function collectEvidence(options: {
     tests,
     durationMs: options.durationMs,
     tokensInput: options.tokensIn,
-    tokensOutput: options.tokensOut,
+    tokensOutput: options.tokensOutput,
     costUsd: options.costUsd,
   };
 }

@@ -1,4 +1,4 @@
-import type { EvidenceBundle } from "@claude-remote/shared";
+import type { EvidenceBundle } from "../types.js";
 
 function escapeMarkdownV2(text: string): string {
   return text.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, (c) => `\\${c}`);

@@ -1,16 +1,21 @@
-export interface TaskNewEvent {
+// Shared event types and contracts
+
+export interface TaskInput {
   taskId: string;
   userId: number;
   chatId: number;
   sessionId: string | null;
   prompt: string;
-  createdAt: string;
+  workspacePath: string;
+  startSha: string;
 }
 
 export type ProgressEvent =
   | { taskId: string; kind: "text"; delta: string }
   | { taskId: string; kind: "tool_use"; tool: string; summary: string }
   | { taskId: string; kind: "tool_result"; tool: string; ok: boolean };
+
+export type ProgressCallback = (event: ProgressEvent) => void;
 
 export interface EvidenceBundle {
   taskId: string;
@@ -29,13 +34,9 @@ export interface EvidenceBundle {
   costUsd: number | null;
 }
 
-export interface TaskCompleteEvent {
-  evidence: EvidenceBundle;
-}
-
-export interface TaskErrorEvent {
-  taskId: string;
-  kind: "timeout" | "cc_crash" | "internal";
-  message: string;
-  stack?: string;
+export interface SessionState {
+  sessionId: string | null;
+  activeTaskId: string | null;
+  lastMessageId: number;
+  updatedAt: string;
 }

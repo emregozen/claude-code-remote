@@ -1,6 +1,7 @@
-import { mkdir } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
+import type { EvidenceBundle } from "../types.js";
 
 export interface TaskRecord {
   id: string;
@@ -19,9 +20,7 @@ export class SQLiteStore {
   private db: Database.Database;
 
   constructor(dbPath: string) {
-    mkdir(dirname(dbPath), { recursive: true }, (err) => {
-      if (err && err.code !== "EEXIST") throw err;
-    });
+    mkdirSync(dirname(dbPath), { recursive: true });
 
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
@@ -66,27 +65,33 @@ export class SQLiteStore {
     );
   }
 
-  updateTaskComplete(taskId: string, evidenceJson: string, finishedAt: string): void {
-    const stmt = this.db.prepare(`
-      UPDATE tasks
-      SET status = 'complete', evidence_json = ?, finished_at = ?
-      WHERE id = ?
-    `);
-    stmt.run(evidenceJson, finishedAt, taskId);
-  }
-
-  updateTaskError(
+  updateTaskStatus(
     taskId: string,
-    errorJson: string,
-    finishedAt: string,
-    status: "error" | "timeout" = "error",
+    status: "complete" | "error" | "timeout",
+    evidence?: EvidenceBundle,
   ): void {
-    const stmt = this.db.prepare(`
-      UPDATE tasks
-      SET status = ?, error_json = ?, finished_at = ?
-      WHERE id = ?
-    `);
-    stmt.run(status, errorJson, finishedAt, taskId);
+    const finishedAt = new Date().toISOString();
+
+    if (status === "complete" && evidence) {
+      const stmt = this.db.prepare(`
+        UPDATE tasks
+        SET status = 'complete', evidence_json = ?, finished_at = ?
+        WHERE id = ?
+      `);
+      stmt.run(JSON.stringify(evidence), finishedAt, taskId);
+    } else {
+      const errorJson = JSON.stringify({
+        taskId,
+        kind: status === "timeout" ? "timeout" : "internal",
+        message: status === "timeout" ? "Task timed out" : "Task failed",
+      });
+      const stmt = this.db.prepare(`
+        UPDATE tasks
+        SET status = ?, error_json = ?, finished_at = ?
+        WHERE id = ?
+      `);
+      stmt.run(status, errorJson, finishedAt, taskId);
+    }
   }
 
   markInFlightAsError(): void {

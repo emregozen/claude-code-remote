@@ -1,6 +1,6 @@
-import type { ProgressEvent } from "@claude-remote/shared";
+import type { ProgressEvent } from "../types.js";
 import type { Context } from "grammy";
-import type { ProgressState } from "./store/session.js";
+import type { ProgressState } from "../store/session.js";
 
 export class ProgressUpdater {
   private flushTimer: NodeJS.Timeout | null = null;

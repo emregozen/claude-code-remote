@@ -59,6 +59,7 @@ export async function initBot(
       { command: "status", description: "Show session status" },
       { command: "stop", description: "Cancel current task" },
       { command: "new", description: "Clear session and start fresh" },
+      { command: "claude", description: "Manage Claude Code sessions" },
     ]);
     console.log("✓ Telegram command menu registered");
   } catch (error) {

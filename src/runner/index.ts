@@ -99,6 +99,10 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         // Prompt MUST be last argument
         args.push(input.prompt);
 
+        console.log(
+          `[task:${input.taskId}] Executing: claude ${args.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")}`,
+        );
+
         const subprocess = execa("claude", args, {
           cwd: input.workspacePath,
           cancelSignal: ac.signal,
@@ -112,8 +116,10 @@ export async function createRunner(cfg: Config): Promise<Runner> {
           throw new Error("Failed to create subprocess stream");
         }
 
+        console.log(`[task:${input.taskId}] Waiting for output from subprocess...`);
         let buffer = "";
         for await (const chunk of subprocess.stdout) {
+          console.log(`[task:${input.taskId}] Received chunk: ${chunk.length} bytes`);
           if (ac.signal.aborted) {
             break;
           }

@@ -9,6 +9,8 @@ export interface TaskInput {
   workspacePath: string;
   startSha: string;
   model: string;
+  effort: string;
+  maxBudgetUsd: number | null;
 }
 
 export type ProgressEvent =

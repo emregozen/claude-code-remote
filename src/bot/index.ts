@@ -12,6 +12,8 @@ import type { EvidenceBundle, ProgressCallback, TaskInput } from "../types.js";
 import { allowlistMiddleware } from "./auth.js";
 import { renderEvidence } from "./evidence.js";
 import {
+  handleBudget,
+  handleEffort,
   handleHelp,
   handleModel,
   handleNew,
@@ -40,6 +42,8 @@ export async function initBot(
   bot.command("help", handleHelp);
   bot.command("status", handleStatus);
   bot.command("model", (ctx) => handleModel(ctx, sessionStore));
+  bot.command("effort", (ctx) => handleEffort(ctx, sessionStore));
+  bot.command("budget", (ctx) => handleBudget(ctx, sessionStore));
   bot.command("stop", (ctx) => handleStopCommand(ctx, sessionStore, sqliteStore));
   bot.command("new", (ctx) => handleNewCommand(ctx, sessionStore, sqliteStore));
 
@@ -72,6 +76,8 @@ export async function initBot(
       lastMessageId: msg.message_id,
       updatedAt: new Date().toISOString(),
       model: currentSession?.model ?? "sonnet",
+      effort: currentSession?.effort ?? "medium",
+      maxBudgetUsd: currentSession?.maxBudgetUsd ?? null,
     };
     sessionStore.setSession(userId, newSession);
 
@@ -89,6 +95,8 @@ export async function initBot(
       workspacePath: cfg.WORKSPACE_PATH,
       startSha,
       model: newSession.model,
+      effort: newSession.effort,
+      maxBudgetUsd: newSession.maxBudgetUsd,
     };
 
     sqliteStore.insertTask({
@@ -233,6 +241,8 @@ async function handleNewCommand(
     lastMessageId: 0,
     updatedAt: new Date().toISOString(),
     model: session?.model ?? "sonnet",
+    effort: session?.effort ?? "medium",
+    maxBudgetUsd: session?.maxBudgetUsd ?? null,
   });
 
   await ctx.reply("Session cleared.");

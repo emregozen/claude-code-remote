@@ -4,6 +4,8 @@ export interface SessionState {
   lastMessageId: number | null;
   updatedAt: string;
   model: string;
+  effort: string;
+  maxBudgetUsd: number | null;
 }
 
 export interface ProgressState {

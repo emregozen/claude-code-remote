@@ -10,6 +10,14 @@ const MODEL_MAP: Record<string, string> = {
   haiku: "claude-haiku-4-5-20251001",
 };
 
+const AVAILABLE_EFFORTS = ["low", "medium", "high", "max"];
+const EFFORT_DESCRIPTIONS: Record<string, string> = {
+  low: "Fast but less thorough",
+  medium: "Balanced (default)",
+  high: "More thorough, slower",
+  max: "Maximum effort, very slow",
+};
+
 export async function handleStart(ctx: Context): Promise<void> {
   const projectName = basename(process.env.WORKSPACE_PATH || "/workspace");
   await ctx.reply(`ClaudeRemote ready. Project: \`${projectName}\`. Send a prompt to begin.`);
@@ -21,6 +29,8 @@ export async function handleHelp(ctx: Context): Promise<void> {
 /start – Initialize session
 /help – Show this message
 /model – View or change Claude model
+/effort – View or change effort level
+/budget – View or set budget limit
 /status – Show session status
 /stop – Cancel current task
 /new – Clear session and start fresh
@@ -77,6 +87,8 @@ export async function handleModel(ctx: Context, sessionStore: SessionStore): Pro
     lastMessageId: null,
     updatedAt: new Date().toISOString(),
     model: "sonnet",
+    effort: "medium",
+    maxBudgetUsd: null,
   };
 
   session.model = requested;
@@ -85,5 +97,131 @@ export async function handleModel(ctx: Context, sessionStore: SessionStore): Pro
   const fullName = MODEL_MAP[requested];
   await ctx.reply(`Model set to \`${fullName}\` for future tasks.`, {
     parse_mode: "Markdown",
+  });
+}
+
+export async function handleEffort(ctx: Context, sessionStore: SessionStore): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) {
+    return;
+  }
+
+  const args = ctx.message?.text?.split(/\s+/).slice(1) ?? [];
+  const requested = args[0]?.toLowerCase();
+
+  if (!requested) {
+    const session = sessionStore.getSession(userId);
+    const currentEffort = session?.effort ?? "medium";
+
+    const effortList = AVAILABLE_EFFORTS.map((e) => {
+      const desc = EFFORT_DESCRIPTIONS[e];
+      return `\`${e}\` — ${desc}`;
+    }).join("\n");
+
+    await ctx.reply(
+      `*Current effort*: ${currentEffort}\n\n*Available effort levels*:\n${effortList}\n\nUse \`/effort low\`, \`/effort medium\`, \`/effort high\`, or \`/effort max\` to change.`,
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  if (!AVAILABLE_EFFORTS.includes(requested)) {
+    await ctx.reply(
+      `Unknown effort level: \`${requested}\`. Available: ${AVAILABLE_EFFORTS.map((e) => `\`${e}\``).join(", ")}`,
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  const session = sessionStore.getSession(userId) ?? {
+    sessionId: null,
+    activeTaskId: null,
+    lastMessageId: null,
+    updatedAt: new Date().toISOString(),
+    model: "sonnet",
+    effort: "medium",
+    maxBudgetUsd: null,
+  };
+
+  session.effort = requested;
+  sessionStore.setSession(userId, session);
+
+  const desc = EFFORT_DESCRIPTIONS[requested];
+  await ctx.reply(`Effort set to \`${requested}\` — ${desc}`, {
+    parse_mode: "Markdown",
+  });
+}
+
+export async function handleBudget(ctx: Context, sessionStore: SessionStore): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) {
+    return;
+  }
+
+  const args = ctx.message?.text?.split(/\s+/).slice(1) ?? [];
+  const requested = args[0]?.toLowerCase();
+
+  if (!requested || requested === "show" || requested === "view") {
+    const session = sessionStore.getSession(userId);
+    const currentBudget = session?.maxBudgetUsd;
+
+    if (currentBudget === null || currentBudget === undefined) {
+      await ctx.reply(
+        "*Current budget*: Unlimited\n\nUse `/budget <amount>` to set a limit (e.g., `/budget 5` for $5)",
+        { parse_mode: "Markdown" },
+      );
+    } else {
+      await ctx.reply(
+        `*Current budget*: \\$${currentBudget}\n\nUse \`/budget <amount>\` to change or \`/budget unlimited\` to remove limit`,
+        { parse_mode: "MarkdownV2" },
+      );
+    }
+    return;
+  }
+
+  if (requested === "unlimited" || requested === "none") {
+    const session = sessionStore.getSession(userId) ?? {
+      sessionId: null,
+      activeTaskId: null,
+      lastMessageId: null,
+      updatedAt: new Date().toISOString(),
+      model: "sonnet",
+      effort: "medium",
+      maxBudgetUsd: null,
+    };
+
+    session.maxBudgetUsd = null;
+    sessionStore.setSession(userId, session);
+
+    await ctx.reply("Budget limit removed. Tasks can spend unlimited amount.", {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  const budget = Number.parseFloat(requested);
+  if (Number.isNaN(budget) || budget <= 0) {
+    await ctx.reply(
+      `Invalid budget: \`${requested}\`. Use a positive number (e\.g\., \`/budget 5\`)`,
+      { parse_mode: "MarkdownV2" },
+    );
+    return;
+  }
+
+  const session = sessionStore.getSession(userId) ?? {
+    sessionId: null,
+    activeTaskId: null,
+    lastMessageId: null,
+    updatedAt: new Date().toISOString(),
+    model: "sonnet",
+    effort: "medium",
+    maxBudgetUsd: null,
+  };
+
+  session.maxBudgetUsd = budget;
+  sessionStore.setSession(userId, session);
+
+  await ctx.reply(`Budget set to \\$${budget} per task\\.`, {
+    parse_mode: "MarkdownV2",
   });
 }

@@ -61,6 +61,11 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         }
 
         args.push("--model", input.model);
+        args.push("--effort", input.effort);
+
+        if (input.maxBudgetUsd !== null) {
+          args.push("--max-budget-usd", String(input.maxBudgetUsd));
+        }
 
         const permissionMode = cfg.CC_SKIP_PERMISSIONS ? "bypassPermissions" : "default";
         args.push("--permission-mode", permissionMode);

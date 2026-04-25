@@ -39,15 +39,69 @@ export async function initBot(
   const rateLimiter = new RateLimiter(30);
   bot.use(rateLimiter.middleware());
 
-  bot.command("start", handleStart);
-  bot.command("help", handleHelp);
-  bot.command("status", handleStatus);
-  bot.command("model", (ctx) => handleModel(ctx, sessionStore));
-  bot.command("effort", (ctx) => handleEffort(ctx, sessionStore));
-  bot.command("budget", (ctx) => handleBudget(ctx, sessionStore));
-  bot.command("claude", (ctx) => handleClaudeCommand(ctx, sessionStore));
-  bot.command("stop", (ctx) => handleStopCommand(ctx, sessionStore, sqliteStore));
-  bot.command("new", (ctx) => handleNewCommand(ctx, sessionStore, sqliteStore));
+  bot.command("start", async (ctx) => {
+    try {
+      await handleStart(ctx);
+    } catch (error) {
+      logger.error({ error }, "/start command failed");
+    }
+  });
+  bot.command("help", async (ctx) => {
+    try {
+      await handleHelp(ctx);
+    } catch (error) {
+      logger.error({ error }, "/help command failed");
+    }
+  });
+  bot.command("status", async (ctx) => {
+    try {
+      await handleStatus(ctx);
+    } catch (error) {
+      logger.error({ error }, "/status command failed");
+    }
+  });
+  bot.command("model", async (ctx) => {
+    try {
+      await handleModel(ctx, sessionStore);
+    } catch (error) {
+      logger.error({ error }, "/model command failed");
+    }
+  });
+  bot.command("effort", async (ctx) => {
+    try {
+      await handleEffort(ctx, sessionStore);
+    } catch (error) {
+      logger.error({ error }, "/effort command failed");
+    }
+  });
+  bot.command("budget", async (ctx) => {
+    try {
+      await handleBudget(ctx, sessionStore);
+    } catch (error) {
+      logger.error({ error }, "/budget command failed");
+    }
+  });
+  bot.command("claude", async (ctx) => {
+    try {
+      await handleClaudeCommand(ctx, sessionStore);
+    } catch (error) {
+      logger.error({ error }, "/claude command failed");
+    }
+  });
+  bot.command("stop", async (ctx) => {
+    try {
+      await handleStopCommand(ctx, sessionStore, sqliteStore);
+    } catch (error) {
+      logger.error({ error }, "/stop command failed");
+    }
+  });
+  bot.command("new", async (ctx) => {
+    try {
+      await handleNewCommand(ctx, sessionStore, sqliteStore);
+    } catch (error) {
+      logger.error({ error }, "/new command failed");
+    }
+  });
 
   try {
     await bot.api.setMyCommands([

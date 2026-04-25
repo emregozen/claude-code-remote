@@ -90,8 +90,10 @@ export async function initBot(
   });
   bot.command("stop", async (ctx) => {
     try {
+      console.log(`[command:/stop] Received from user ${ctx.from?.id}`);
       await handleStopCommand(ctx, sessionStore, sqliteStore, runner);
     } catch (error) {
+      console.error(`[command:/stop] Error:`, error);
       logger.error({ error }, "/stop command failed");
     }
   });
@@ -279,16 +281,20 @@ async function handleStopCommand(
 ) {
   const userId = ctx.from?.id;
   if (!userId) {
+    console.log(`[command:/stop] No userId found`);
     return;
   }
 
+  console.log(`[command:/stop] Processing for user ${userId}`);
   const session = sessionStore.getSession(userId);
   if (!session?.activeTaskId) {
+    console.log(`[command:/stop] No active task for user ${userId}`);
     await ctx.reply("No active task.");
     return;
   }
 
   const taskId = session.activeTaskId;
+  console.log(`[command:/stop] Killing task ${taskId}`);
   session.activeTaskId = null;
   sessionStore.setSession(userId, session);
 

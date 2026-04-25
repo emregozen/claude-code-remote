@@ -37,18 +37,24 @@ export async function createRunner(cfg: Config): Promise<Runner> {
 
   return {
     stopTask(taskId: string): void {
+      console.log(`[runner:stopTask] Attempting to stop task ${taskId}`);
       const controller = activeControllers.get(taskId);
       const subprocess = activeProcesses.get(taskId);
 
+      console.log(`[runner:stopTask] Found subprocess: ${!!subprocess}, controller: ${!!controller}`);
+
       if (subprocess) {
         try {
+          console.log(`[runner:stopTask] Killing subprocess for task ${taskId}`);
           subprocess.kill();
-        } catch {
-          // Process already dead
+          console.log(`[runner:stopTask] Successfully killed subprocess`);
+        } catch (error) {
+          console.log(`[runner:stopTask] Error killing subprocess:`, error);
         }
       }
 
       if (controller) {
+        console.log(`[runner:stopTask] Aborting controller for task ${taskId}`);
         controller.abort();
       }
     },

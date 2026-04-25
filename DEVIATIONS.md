@@ -44,3 +44,19 @@ These are the questions from `SPEC.md` Section 13. Each must be resolved with an
 - Q2: SDK emits `session_id` in the `result` message (msg.session_id)
 - Q3: Permission mode value is `bypassPermissions` (verified in runner.ts)
 - Q5: PROGRESS_EDIT_INTERVAL_MS default of 3000ms is used (verified in config + progress.ts)
+
+### 2026-04-25 — Section 7.5, 13 (Critical Q6) — CC SDK unavailable; use subprocess
+
+**Decision:** The `@anthropic-ai/claude-code` npm package (v2.1.119) is a CLI binary wrapper without JavaScript exports. No `query` function exists to import. Instead, spawn the `claude` CLI process directly as a subprocess using `execa`. Parse streaming JSON output via `--print --output-format=stream-json`.
+
+**Reason:** The spec assumed a JavaScript SDK that doesn't exist yet. The CLI tool is the only available interface. It's battle-tested, handles credential management via `~/.claude/`, and supports all required options (`--permission-mode bypassPermissions`, `--resume <sessionId>`, etc.).
+
+**Impact:** 
+- `src/runner/index.ts` spawns `claude` subprocess instead of importing SDK
+- Parser maps CLI JSON events to `ProgressEvent` format
+- Session ID extraction from final event payload
+- Removes fake `@ts-ignore` and dynamic import anti-pattern
+
+**Test:** Verified `claude --version` works and `--print --output-format=stream-json` is supported.
+
+**Q6 Answer (Critical):** Cli respects `$HOME/.claude/` credentials automatically; no `ANTHROPIC_API_KEY` env var needed. Credentials are read from host authentication flow (`claude login`). Verified on this system.

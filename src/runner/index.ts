@@ -1,10 +1,33 @@
+import { execa } from "execa";
+import type { Config } from "../config.js";
 import type { EvidenceBundle, ProgressCallback, ProgressEvent, TaskInput } from "../types.js";
 import type { ToolCall } from "./evidence/collector.js";
 import { collectEvidence } from "./evidence/collector.js";
-import type { Config } from "../config.js";
 
 export interface Runner {
   runTask(input: TaskInput, onProgress: ProgressCallback): Promise<EvidenceBundle>;
+}
+
+interface ContentBlock {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+  content?: string;
+  is_error?: boolean;
+}
+
+interface ClaudeMessage {
+  type: string;
+  message?: {
+    content?: ContentBlock[];
+  };
+  session_id?: string;
+  total_cost_usd?: number;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+  };
 }
 
 export async function createRunner(cfg: Config): Promise<Runner> {
@@ -26,75 +49,105 @@ export async function createRunner(cfg: Config): Promise<Runner> {
       }, cfg.TASK_TIMEOUT_MS);
 
       try {
-        // Dynamic import of @anthropic-ai/claude-code
-        // @ts-ignore - SDK types may not be available at compile time
-        const { query } = await import("@anthropic-ai/claude-code");
+        const args: string[] = [
+          "--print",
+          "--output-format=stream-json",
+          "--verbose",
+          input.prompt,
+        ];
 
-        const iter = query({
-          prompt: input.prompt,
-          options: {
-            cwd: input.workspacePath,
-            resume: input.sessionId ?? undefined,
-            permissionMode: cfg.CC_SKIP_PERMISSIONS ? "bypassPermissions" : "default",
-            abortController: ac,
-          },
+        if (input.sessionId) {
+          args.push("--resume", input.sessionId);
+        }
+
+        const permissionMode = cfg.CC_SKIP_PERMISSIONS ? "bypassPermissions" : "default";
+        args.push("--permission-mode", permissionMode);
+
+        const subprocess = execa("claude", args, {
+          cwd: input.workspacePath,
+          signal: ac.signal,
+          all: true,
         });
 
         let resultSessionId = input.sessionId;
 
-        for await (const msg of iter as AsyncIterable<Record<string, unknown>>) {
-          if (msg.type === "assistant") {
-            accumulatedText = (msg.text ?? "") as string;
-            const progressEvent: ProgressEvent = {
-              taskId: input.taskId,
-              kind: "text",
-              delta: accumulatedText,
-            };
-            onProgress(progressEvent);
-          } else if (msg.type === "tool_use") {
-            const tool = (msg.tool ?? "unknown") as string;
-            const toolCall: ToolCall = { tool };
+        if (!subprocess.all) {
+          throw new Error("Failed to create subprocess stream");
+        }
 
-            if (tool === "Bash") {
-              const toolInput = msg.input as Record<string, unknown> | undefined;
-              if (toolInput?.command) {
-                toolCall.command = String(toolInput.command);
+        for await (const line of subprocess.all) {
+          if (ac.signal.aborted) {
+            break;
+          }
+
+          if (!line.trim()) {
+            continue;
+          }
+
+          let event: ClaudeMessage;
+          try {
+            event = JSON.parse(line);
+          } catch {
+            continue;
+          }
+
+          if (event.type === "assistant" && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === "text" && block.text) {
+                accumulatedText = block.text;
+                const progressEvent: ProgressEvent = {
+                  taskId: input.taskId,
+                  kind: "text",
+                  delta: accumulatedText,
+                };
+                onProgress(progressEvent);
+              } else if (block.type === "tool_use" && block.name) {
+                const tool = block.name;
+                const toolCall: ToolCall = { tool };
+
+                if (tool === "Bash" && block.input?.command) {
+                  toolCall.command = String(block.input.command);
+                  lastBashCall = toolCall;
+                  toolCalls.push(toolCall);
+                }
+
+                const progressEvent: ProgressEvent = {
+                  taskId: input.taskId,
+                  kind: "tool_use",
+                  tool,
+                  summary: "...",
+                };
+                onProgress(progressEvent);
               }
-              lastBashCall = toolCall;
-              toolCalls.push(toolCall);
             }
+          } else if (event.type === "user" && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === "tool_result") {
+                const isError = (block.is_error ?? false) as boolean;
+                const output = block.content as string | undefined;
 
-            const progressEvent: ProgressEvent = {
-              taskId: input.taskId,
-              kind: "tool_use",
-              tool,
-              summary: (msg.summary ?? "...") as string,
-            };
-            onProgress(progressEvent);
-          } else if (msg.type === "tool_result") {
-            const isError = (msg.is_error ?? false) as boolean;
-            const output = msg.content as string | undefined;
+                if (lastBashCall) {
+                  lastBashCall.exitCode = isError ? 1 : 0;
+                  if (output) {
+                    lastBashCall.output = output;
+                  }
+                  lastBashCall = null;
+                }
 
-            if (lastBashCall) {
-              lastBashCall.exitCode = isError ? 1 : 0;
-              if (output) {
-                lastBashCall.output = output;
+                const progressEvent: ProgressEvent = {
+                  taskId: input.taskId,
+                  kind: "tool_result",
+                  tool: "tool_result",
+                  ok: !isError,
+                };
+                onProgress(progressEvent);
               }
-              lastBashCall = null;
             }
-
-            const progressEvent: ProgressEvent = {
-              taskId: input.taskId,
-              kind: "tool_result",
-              tool: "tool_result",
-              ok: !isError,
-            };
-            onProgress(progressEvent);
-          } else if (msg.type === "result") {
-            resultSessionId = (msg.session_id as string) ?? input.sessionId;
-            tokensIn = (msg.tokens_input ?? 0) as number;
-            tokensOut = (msg.tokens_output ?? 0) as number;
-            costUsd = (msg.cost_usd ?? null) as number | null;
+          } else if (event.type === "result") {
+            resultSessionId = event.session_id ?? input.sessionId;
+            tokensIn = event.usage?.input_tokens ?? 0;
+            tokensOut = event.usage?.output_tokens ?? 0;
+            costUsd = event.total_cost_usd ?? null;
           }
         }
 

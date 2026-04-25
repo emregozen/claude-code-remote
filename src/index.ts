@@ -1,15 +1,15 @@
-import { config as loadDotenv } from "dotenv";
 import { execSync } from "node:child_process";
+import { config as loadDotenv } from "dotenv";
 
 if (process.env.NODE_ENV !== "production") {
   loadDotenv();
 }
 
+import { initBot } from "./bot/index.js";
 import { parseConfig } from "./config.js";
 import { createLogger } from "./logger.js";
-import { initBot } from "./bot/index.js";
-import { createRunner } from "./runner/index.js";
 import { installCCHooks } from "./runner/hooks/install.js";
+import { createRunner } from "./runner/index.js";
 import { createHookServer } from "./runner/server.js";
 import { SQLiteStore } from "./store/db.js";
 
@@ -24,9 +24,9 @@ async function main() {
     execSync("claude --version", { stdio: "pipe" });
     console.log("✓ Claude CLI authenticated");
   } catch {
-    console.error(`✗ Claude CLI not found or not authenticated`);
-    console.error(`  Run: claude login`);
-    console.error(`  See README.md section 4.3 for details`);
+    console.error("✗ Claude CLI not found or not authenticated");
+    console.error("  Run: claude login");
+    console.error("  See README.md section 4.3 for details");
     process.exit(1);
   }
 

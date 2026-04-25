@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 
-export async function createHookServer(port: number = 4711): Promise<void> {
+export async function createHookServer(port = 4711): Promise<void> {
   const fastify = Fastify({ logger: false });
 
   fastify.post("/hook/stop", async (request, reply) => {

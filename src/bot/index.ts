@@ -1,19 +1,19 @@
-import { randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { Context } from "grammy";
 import { Bot } from "grammy";
+import type { Config } from "../config.js";
+import type { Logger } from "../logger.js";
+import type { Runner } from "../runner/index.js";
+import type { SQLiteStore } from "../store/db.js";
+import { SessionStore } from "../store/session.js";
 import type { EvidenceBundle, ProgressCallback, TaskInput } from "../types.js";
 import { allowlistMiddleware } from "./auth.js";
 import { renderEvidence } from "./evidence.js";
 import { handleHelp, handleStart, handleStatus } from "./handlers/command.js";
 import { ProgressUpdater } from "./progress.js";
 import { RateLimiter } from "./rate-limit.js";
-import { SessionStore } from "../store/session.js";
-import { SQLiteStore } from "../store/db.js";
-import type { Runner } from "../runner/index.js";
-import type { Config } from "../config.js";
-import type { Logger } from "../logger.js";
 
 export async function initBot(
   cfg: Config,

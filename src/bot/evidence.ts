@@ -49,7 +49,8 @@ export function renderEvidence(evidence: EvidenceBundle, originalPrompt: string)
   const tokensStr = `${evidence.tokensInput}/${evidence.tokensOutput} tok`;
   let footer = `⏱ ${durationStr}   ${escapeMarkdownV2(tokensStr)}`;
   if (evidence.costUsd !== null) {
-    footer = `⏱ ${durationStr}   💰 \\$${evidence.costUsd.toFixed(4)} \\(${escapeMarkdownV2(tokensStr)}\\)`;
+    const costStr = escapeMarkdownV2(evidence.costUsd.toFixed(4));
+    footer = `⏱ ${durationStr}   💰 \\$${costStr} \\(${escapeMarkdownV2(tokensStr)}\\)`;
   }
   parts.push("");
   parts.push(footer);

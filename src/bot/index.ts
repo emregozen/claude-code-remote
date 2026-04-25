@@ -292,6 +292,7 @@ async function handleStopCommand(
   sessionStore.setSession(userId, session);
 
   sqliteStore.updateTaskStatus(taskId, "error");
+  console.log(`[command:/stop] User ${userId} stopped task ${taskId}`);
   await ctx.reply("Task cancelled.");
 }
 
@@ -321,5 +322,6 @@ async function handleNewCommand(
     maxBudgetUsd: session?.maxBudgetUsd ?? null,
   });
 
+  console.log(`[command:/new] User ${userId} cleared session`);
   await ctx.reply("Session cleared.");
 }

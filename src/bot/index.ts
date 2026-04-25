@@ -47,6 +47,25 @@ export async function initBot(
   bot.command("stop", (ctx) => handleStopCommand(ctx, sessionStore, sqliteStore));
   bot.command("new", (ctx) => handleNewCommand(ctx, sessionStore, sqliteStore));
 
+  try {
+    await bot.api.setMyCommands([
+      { command: "start", description: "Initialize session" },
+      { command: "help", description: "Show available commands" },
+      { command: "model", description: "View or change Claude model" },
+      { command: "effort", description: "View or set effort level" },
+      { command: "budget", description: "View or set budget limit" },
+      { command: "status", description: "Show session status" },
+      { command: "stop", description: "Cancel current task" },
+      { command: "new", description: "Clear session and start fresh" },
+    ]);
+    console.log("✓ Telegram command menu registered");
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      "Failed to register command menu with Telegram",
+    );
+  }
+
   bot.on("message", async (ctx) => {
     const prompt = ctx.message?.text;
     if (!prompt) {

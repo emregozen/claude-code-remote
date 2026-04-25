@@ -256,21 +256,34 @@ export async function initBot(
           sessionStore.setSession(userId, sess);
         }
 
-        const errorMsg = error instanceof Error ? error.message : "Unknown error";
-        logger.error({ taskId, error: errorMsg }, "Task failed");
+        // Check if task was cancelled by user (via /stop command)
+        if (error instanceof Error && error.message.includes("canceled")) {
+          console.log(`[task:${taskId}] Task was cancelled by user`);
+          ctx
+            .editMessageText("⏹️ Task cancelled.")
+            .catch(() => {
+              ctx.reply("⏹️ Task cancelled.").catch(() => {
+                // Silent fail
+              });
+            });
+          sqliteStore.updateTaskStatus(taskId, "error");
+        } else {
+          const errorMsg = error instanceof Error ? error.message : "Unknown error";
+          logger.error({ taskId, error: errorMsg }, "Task failed");
 
-        const escapedError = errorMsg.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, (c) => `\\${c}`);
-        const errorText = `💥 Error: ${escapedError}`;
+          const escapedError = errorMsg.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, (c) => `\\${c}`);
+          const errorText = `💥 Error: ${escapedError}`;
 
-        ctx.editMessageText(errorText).catch(() => {
-          ctx.reply(errorText, { parse_mode: "MarkdownV2" }).catch(() => {
-            ctx.reply("❌ Task failed (error details unavailable)").catch(() => {
-              // Silent fail
+          ctx.editMessageText(errorText).catch(() => {
+            ctx.reply(errorText, { parse_mode: "MarkdownV2" }).catch(() => {
+              ctx.reply("❌ Task failed (error details unavailable)").catch(() => {
+                // Silent fail
+              });
             });
           });
-        });
 
-        sqliteStore.updateTaskStatus(taskId, "error");
+          sqliteStore.updateTaskStatus(taskId, "error");
+        }
       });
   });
 

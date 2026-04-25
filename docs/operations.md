@@ -166,6 +166,43 @@ When you rotate your bot token at @BotFather:
 
 Old token becomes invalid immediately. Existing sessions are not affected (stored in Redis/SQLite independently of the token).
 
+### Re-authenticating Claude Code
+
+If Claude Code credentials expire or you need to switch accounts:
+
+1. Stop the stack:
+   ```bash
+   docker compose down
+   ```
+
+2. Re-run the interactive login:
+   ```bash
+   docker compose run --rm cc-runner claude login
+   ```
+
+3. Follow the prompts to sign in with your Claude account. New credentials overwrite the old ones in the `cr_cc_home` volume.
+
+4. Restart:
+   ```bash
+   docker compose up
+   ```
+
+**Resetting all credentials** (nuclear option):
+
+If you want to clear all stored credentials and start fresh:
+
+```bash
+# Remove the credentials volume
+docker compose down
+docker volume rm claude-remote_cr_cc_home
+
+# Re-authenticate
+docker compose run --rm cc-runner claude login
+
+# Start normally
+docker compose up
+```
+
 ---
 
 ## Troubleshooting

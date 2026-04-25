@@ -23,7 +23,7 @@ ClaudeRemote is a Telegram bot that wraps Claude Code, allowing you to:
 - Docker & Docker Compose (for containerized services)
 - Node.js 20+ (to build the images)
 - Telegram Bot Token (create via @BotFather)
-- Anthropic API Key (sk-ant-*)
+- Claude Pro or Max subscription (for authentication via `claude login`)
 - Project Directory (absolute path to a git repository you own)
 
 ---
@@ -43,7 +43,6 @@ cp .env.example .env
 ```env
 TELEGRAM_BOT_TOKEN=<bot_token>
 ALLOWLIST=<your-user-id>
-ANTHROPIC_API_KEY=<your-api-key>
 WORKSPACE_PATH=/absolute/path/to/your/project
 ```
 
@@ -54,13 +53,23 @@ WORKSPACE_PATH must:
 - Point to an existing git repository
 - Be readable and writable by Docker
 
-### 3. Start the stack
+### 3. Authenticate with Claude (first time only)
+
+Run the interactive login to store your Claude Pro/Max credentials:
+
+```bash
+docker compose run --rm cc-runner claude login
+```
+
+This launches the Claude login flow. Sign in with your Claude account, and credentials are saved to a Docker volume (`cr_cc_home`) that persists across restarts. You only need to do this once.
+
+### 4. Start the stack
 
 ```bash
 docker compose up
 ```
 
-### 4. Send a message
+### 5. Send a message
 
 Message the bot on Telegram:
 ```
@@ -103,7 +112,6 @@ See `.env.example` for all options.
 |----------|---------|---------|
 | TELEGRAM_BOT_TOKEN | (required) | Bot authentication |
 | ALLOWLIST | (required) | Comma-separated user IDs |
-| ANTHROPIC_API_KEY | (required) | Claude Code SDK |
 | WORKSPACE_PATH | (required) | Project directory |
 | REDIS_URL | redis://redis:6379 | Redis pub/sub |
 | SQLITE_PATH | /data/claude-remote.db | Task history |

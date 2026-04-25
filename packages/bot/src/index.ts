@@ -33,7 +33,7 @@ async function main() {
 
   const logger = pino({
     redact: {
-      paths: ["TELEGRAM_BOT_TOKEN", "ANTHROPIC_API_KEY"],
+      paths: ["*_TOKEN", "*_KEY", "*_SECRET"],
       remove: true,
     },
   });

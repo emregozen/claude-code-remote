@@ -759,7 +759,7 @@ This is the canonical list. Every criterion is a pass/fail statement. The MVP is
 | ID | Area | Pass condition |
 |---|---|---|
 | SEC-01 | Allowlist | Message from a non-allowlisted user produces no reply (verified by mock Telegram test; bot sends 0 messages). |
-| SEC-02 | Secrets | Grepping the logs directory for `TELEGRAM_BOT_TOKEN` or `ANTHROPIC_API_KEY` after a full e2e run returns zero matches. |
+| SEC-02 | Secrets | Grepping the logs directory for `TELEGRAM_BOT_TOKEN` or any `*_TOKEN`, `*_KEY`, `*_SECRET` patterns after a full e2e run returns zero matches. |
 | SEC-03 | Port exposure | `docker compose ps` shows 0 exposed ports on bot and cc-runner; only redis internal port 6379 within compose network. |
 | SEC-04 | Rate limit | 31st command within 60s from one user is ignored with a single "rate limited" reply; 32nd in same window gets no reply. |
 

@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 const schema = z.object({
-  ANTHROPIC_API_KEY: z.string().startsWith("sk-ant-", "API key must start with 'sk-ant-'"),
   WORKSPACE_PATH: z.string().min(1, "WORKSPACE_PATH required"),
   REDIS_URL: z.string().url().default("redis://redis:6379"),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error"]).default("info"),

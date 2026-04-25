@@ -1,6 +1,7 @@
-import type { ProgressEvent } from "../types.js";
 import type { Context } from "grammy";
+
 import type { ProgressState } from "../store/session.js";
+import type { ProgressEvent } from "../types.js";
 
 export class ProgressUpdater {
   private flushTimer: NodeJS.Timeout | null = null;

@@ -1,6 +1,6 @@
-import { z } from "zod";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
 const schema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().regex(/^\d+:[A-Za-z0-9_-]+$/, "Invalid Telegram bot token format"),

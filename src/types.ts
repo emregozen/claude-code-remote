@@ -1,6 +1,6 @@
 // Shared event types and contracts
 
-export type ApprovalMode = "bypass" | "auto-edit" | "manual";
+export type ApprovalMode = "bypass" | "safe" | "strict";
 
 export interface TaskInput {
   taskId: string;
@@ -19,16 +19,14 @@ export interface TaskInput {
 export type ProgressEvent =
   | { taskId: string; kind: "text"; delta: string }
   | { taskId: string; kind: "tool_use"; tool: string; summary: string }
-  | { taskId: string; kind: "tool_result"; tool: string; ok: boolean }
-  | {
-      taskId: string;
-      kind: "permission_request";
-      tool: string;
-      description: string;
-      requestId: string;
-    };
+  | { taskId: string; kind: "tool_result"; tool: string; ok: boolean };
 
 export type ProgressCallback = (event: ProgressEvent) => void;
+
+export interface PermissionDenial {
+  tool: string;
+  description?: string;
+}
 
 export interface EvidenceBundle {
   taskId: string;
@@ -45,6 +43,7 @@ export interface EvidenceBundle {
   tokensInput: number;
   tokensOutput: number;
   costUsd: number | null;
+  deniedOperations?: PermissionDenial[];
 }
 
 export interface SessionState {

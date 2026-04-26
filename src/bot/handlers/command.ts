@@ -90,7 +90,7 @@ export async function handleModel(ctx: Context, sessionStore: SessionStore): Pro
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
-    approvalMode: "auto-edit",
+    approvalMode: "safe",
   };
 
   session.model = requested;
@@ -143,7 +143,7 @@ export async function handleEffort(ctx: Context, sessionStore: SessionStore): Pr
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
-    approvalMode: "auto-edit",
+    approvalMode: "safe",
   };
 
   session.effort = requested;
@@ -191,7 +191,7 @@ export async function handleBudget(ctx: Context, sessionStore: SessionStore): Pr
       model: "sonnet",
       effort: "medium",
       maxBudgetUsd: null,
-      approvalMode: "auto-edit",
+      approvalMode: "safe",
     };
 
     session.maxBudgetUsd = null;
@@ -220,7 +220,7 @@ export async function handleBudget(ctx: Context, sessionStore: SessionStore): Pr
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
-    approvalMode: "auto-edit",
+    approvalMode: "safe",
   };
 
   session.maxBudgetUsd = budget;
@@ -231,11 +231,11 @@ export async function handleBudget(ctx: Context, sessionStore: SessionStore): Pr
   });
 }
 
-const AVAILABLE_MODES = ["bypass", "auto-edit", "manual"];
+const AVAILABLE_MODES = ["bypass", "safe", "strict"];
 const MODE_DESCRIPTIONS: Record<string, string> = {
-  bypass: "Skip all permission checks (dangerous)",
-  "auto-edit": "Auto-accept file edits, prompt for shell commands",
-  manual: "Require Telegram approval for each risky action",
+  bypass: "Run without permission checks (⚠️ dangerous, for sandboxes only)",
+  safe: "Allow file edits, block shell commands and network access",
+  strict: "Block all risky operations (very restrictive, some tasks will fail silently)",
 };
 
 export async function handleMode(ctx: Context, sessionStore: SessionStore): Promise<void> {
@@ -258,7 +258,7 @@ export async function handleMode(ctx: Context, sessionStore: SessionStore): Prom
     }).join("\n");
 
     await ctx.reply(
-      `*Current approval mode*: \`${currentMode}\`\n\n*Available modes*:\n${modeList}\n\nUse \`/mode bypass\`, \`/mode auto-edit\`, or \`/mode manual\` to change.`,
+      `*Current approval mode*: \`${currentMode}\`\n\n*Available modes*:\n${modeList}\n\nUse \`/mode bypass\`, \`/mode safe\`, or \`/mode strict\` to change.`,
       { parse_mode: "Markdown" },
     );
     return;
@@ -280,10 +280,10 @@ export async function handleMode(ctx: Context, sessionStore: SessionStore): Prom
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
-    approvalMode: "auto-edit",
+    approvalMode: "safe",
   };
 
-  session.approvalMode = requested as "bypass" | "auto-edit" | "manual";
+  session.approvalMode = requested as "bypass" | "safe" | "strict";
   sessionStore.setSession(userId, session);
 
   const desc = MODE_DESCRIPTIONS[requested];

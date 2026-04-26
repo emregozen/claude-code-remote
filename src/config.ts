@@ -25,10 +25,6 @@ const schema = z.object({
     .default(3000),
   TASK_TIMEOUT_MS: z.coerce.number().int().positive().default(1800000),
   HOOK_HTTP_PORT: z.coerce.number().int().min(1024).max(65535).default(4711),
-  CC_SKIP_PERMISSIONS: z
-    .enum(["true", "false"])
-    .transform((v) => v === "true")
-    .default("true"),
 });
 
 export type Config = z.infer<typeof schema>;

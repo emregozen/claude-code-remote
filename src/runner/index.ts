@@ -14,7 +14,6 @@ import { collectEvidence } from "./evidence/collector.js";
 export interface Runner {
   runTask(input: TaskInput, onProgress: ProgressCallback): Promise<EvidenceBundle>;
   stopTask(taskId: string): void;
-  resolveApproval(requestId: string, approved: boolean): void;
 }
 
 interface ContentBlock {
@@ -37,28 +36,24 @@ interface ClaudeMessage {
     input_tokens?: number;
     output_tokens?: number;
   };
+  permission_denials?: Array<{
+    tool_name: string;
+    tool_input?: { description?: string; [key: string]: any };
+    tool_use_id?: string;
+  }>;
 }
 
 export async function createRunner(cfg: Config): Promise<Runner> {
   const activeControllers = new Map<string, AbortController>();
   const activeProcesses = new Map<string, any>();
-  const pendingApprovals = new Map<string, (approved: boolean) => void>();
 
   const permissionModeMap: Record<ApprovalMode, string> = {
     bypass: "bypassPermissions",
-    "auto-edit": "acceptEdits",
-    manual: "default",
+    safe: "acceptEdits",
+    strict: "default",
   };
 
   return {
-    resolveApproval(requestId: string, approved: boolean): void {
-      const resolve = pendingApprovals.get(requestId);
-      if (resolve) {
-        pendingApprovals.delete(requestId);
-        resolve(approved);
-      }
-    },
-
     stopTask(taskId: string): void {
       console.log(`[runner:stopTask] Attempting to stop task ${taskId}`);
       const controller = activeControllers.get(taskId);
@@ -129,23 +124,16 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         const subprocess = execa("claude", args, {
           cwd: input.workspacePath,
           cancelSignal: ac.signal,
-          stdin: input.approvalMode !== "bypass" ? "pipe" : undefined,
         });
 
         activeProcesses.set(input.taskId, subprocess);
 
         let resultSessionId = input.sessionId;
+        let deniedOperations: Array<{ tool: string; description?: string }> = [];
 
         if (!subprocess.stdout) {
           throw new Error("Failed to create subprocess stream");
         }
-
-        const handlePermissionResponse = async (approved: boolean) => {
-          const response = approved ? "y\n" : "n\n";
-          if (subprocess.stdin) {
-            subprocess.stdin.write(response);
-          }
-        };
 
         console.log(`[task:${input.taskId}] Waiting for output from subprocess...`);
         let buffer = "";
@@ -223,37 +211,29 @@ export async function createRunner(cfg: Config): Promise<Runner> {
                   onProgress(progressEvent);
                 }
               }
-            } else if (event.type === "permission") {
-              const requestId = randomUUID();
-              const tool = (event as any).tool ?? "Tool";
-              const description = (event as any).description ?? "Unknown action";
-
-              onProgress({
-                taskId: input.taskId,
-                kind: "permission_request",
-                tool,
-                description,
-                requestId,
-              });
-
-              const approved = await new Promise<boolean>((resolve) => {
-                const timeoutHandle = setTimeout(() => {
-                  pendingApprovals.delete(requestId);
-                  resolve(false);
-                }, 60000);
-
-                pendingApprovals.set(requestId, (approved) => {
-                  clearTimeout(timeoutHandle);
-                  resolve(approved);
-                });
-              });
-
-              await handlePermissionResponse(approved);
             } else if (event.type === "result") {
               resultSessionId = event.session_id ?? input.sessionId;
               tokensIn = event.usage?.input_tokens ?? 0;
               tokensOut = event.usage?.output_tokens ?? 0;
               costUsd = event.total_cost_usd ?? null;
+
+              if (event.permission_denials && event.permission_denials.length > 0) {
+                deniedOperations = event.permission_denials.map((denial) => ({
+                  tool: denial.tool_name,
+                  description: denial.tool_input?.description,
+                }));
+
+                if (deniedOperations.length > 0) {
+                  const deniedList = deniedOperations
+                    .map((d) => `• ${d.tool}: ${d.description || "operation"}`)
+                    .join("\n");
+                  onProgress({
+                    taskId: input.taskId,
+                    kind: "text",
+                    delta: `\n⚠️ *Blocked by approval mode:*\n${deniedList}`,
+                  });
+                }
+              }
             }
           }
         }
@@ -277,6 +257,7 @@ export async function createRunner(cfg: Config): Promise<Runner> {
           tokensOutput: tokensOut,
           costUsd,
           durationMs,
+          deniedOperations: deniedOperations.length > 0 ? deniedOperations : undefined,
         });
 
         activeControllers.delete(input.taskId);

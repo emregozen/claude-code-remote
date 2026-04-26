@@ -6,7 +6,7 @@ export interface SessionState {
   model: string;
   effort: string;
   maxBudgetUsd: number | null;
-  approvalMode: "bypass" | "auto-edit" | "manual";
+  approvalMode: "bypass" | "safe" | "strict";
 }
 
 export interface ProgressState {

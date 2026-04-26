@@ -1,4 +1,4 @@
-import type { EvidenceBundle } from "../../types.js";
+import type { EvidenceBundle, PermissionDenial } from "../../types.js";
 import { getGitDiff } from "./git.js";
 
 const TEST_PATTERNS = [
@@ -36,6 +36,7 @@ export async function collectEvidence(options: {
   tokensOutput: number;
   costUsd: number | null;
   durationMs: number;
+  deniedOperations?: PermissionDenial[];
 }): Promise<EvidenceBundle> {
   const diff = await getGitDiff(options.startSha, options.workspacePath);
 
@@ -67,5 +68,6 @@ export async function collectEvidence(options: {
     tokensInput: options.tokensIn,
     tokensOutput: options.tokensOutput,
     costUsd: options.costUsd,
+    deniedOperations: options.deniedOperations,
   };
 }

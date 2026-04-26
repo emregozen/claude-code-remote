@@ -26,12 +26,9 @@ Mobile-first remote control for Claude Code via Telegram. Run Claude Code tasks 
 
 ## Security & Permissions
 
-⚠️ **IMPORTANT: This bot can run ANY code on your behalf**, including destructive commands like `rm -rf`. Only use ClaudeRemote with:
-- Projects you own and trust
-- Code that won't hurt if modified
-- Workspace on a dedicated machine or VM if it contains sensitive data
+⚠️ **IMPORTANT: The bot can run any code on your behalf, including destructive commands like `rm -rf`. Only run ClaudeRemote on a project you control. Consider running this on a dedicated machine or VM if the workspace contains sensitive data or code.**
 
-The bot runs Claude Code with `--dangerously-skip-permissions` by default. No approval prompts. All tool use is automatic.
+The bot runs Claude Code with `--dangerously-skip-permissions` by default for MVP. No approval prompts. All tool use is automatic.
 
 ## Installation
 

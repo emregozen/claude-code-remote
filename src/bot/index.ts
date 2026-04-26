@@ -207,7 +207,7 @@ export async function initBot(
       model: currentSession?.model ?? "sonnet",
       effort: currentSession?.effort ?? "medium",
       maxBudgetUsd: currentSession?.maxBudgetUsd ?? null,
-      approvalMode: currentSession?.approvalMode ?? "bypass",
+      approvalMode: currentSession?.approvalMode ?? "auto-edit",
     };
     sessionStore.setSession(userId, newSession);
 

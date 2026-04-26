@@ -90,7 +90,7 @@ export async function handleModel(ctx: Context, sessionStore: SessionStore): Pro
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
-    approvalMode: "bypass",
+    approvalMode: "auto-edit",
   };
 
   session.model = requested;
@@ -143,7 +143,7 @@ export async function handleEffort(ctx: Context, sessionStore: SessionStore): Pr
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
-    approvalMode: "bypass",
+    approvalMode: "auto-edit",
   };
 
   session.effort = requested;
@@ -191,7 +191,7 @@ export async function handleBudget(ctx: Context, sessionStore: SessionStore): Pr
       model: "sonnet",
       effort: "medium",
       maxBudgetUsd: null,
-      approvalMode: "bypass",
+      approvalMode: "auto-edit",
     };
 
     session.maxBudgetUsd = null;
@@ -220,7 +220,7 @@ export async function handleBudget(ctx: Context, sessionStore: SessionStore): Pr
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
-    approvalMode: "bypass",
+    approvalMode: "auto-edit",
   };
 
   session.maxBudgetUsd = budget;
@@ -249,15 +249,16 @@ export async function handleMode(ctx: Context, sessionStore: SessionStore): Prom
 
   if (!requested) {
     const session = sessionStore.getSession(userId);
-    const currentMode = session?.approvalMode ?? "bypass";
+    const currentMode = session?.approvalMode ?? "auto-edit";
 
     const modeList = AVAILABLE_MODES.map((m) => {
       const desc = MODE_DESCRIPTIONS[m];
-      return `\`${m}\` — ${desc}`;
+      const marker = m === currentMode ? "✅" : " ";
+      return `${marker} \`${m}\` — ${desc}`;
     }).join("\n");
 
     await ctx.reply(
-      `*Current approval mode*: ${currentMode}\n\n*Available modes*:\n${modeList}\n\nUse \`/mode bypass\`, \`/mode auto-edit\`, or \`/mode manual\` to change.`,
+      `*Current approval mode*: \`${currentMode}\`\n\n*Available modes*:\n${modeList}\n\nUse \`/mode bypass\`, \`/mode auto-edit\`, or \`/mode manual\` to change.`,
       { parse_mode: "Markdown" },
     );
     return;
@@ -279,7 +280,7 @@ export async function handleMode(ctx: Context, sessionStore: SessionStore): Prom
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
-    approvalMode: "bypass",
+    approvalMode: "auto-edit",
   };
 
   session.approvalMode = requested as "bypass" | "auto-edit" | "manual";

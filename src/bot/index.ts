@@ -16,6 +16,7 @@ import {
   handleBudget,
   handleEffort,
   handleHelp,
+  handleMode,
   handleModel,
   handleNew,
   handleStart,
@@ -38,6 +39,16 @@ export async function initBot(
 
   const rateLimiter = new RateLimiter(30);
   bot.use(rateLimiter.middleware());
+
+  const pendingApprovals = new Map<
+    string,
+    {
+      resolve: (approved: boolean) => void;
+      taskId: string;
+      messageId: number;
+      timeoutHandle: NodeJS.Timeout;
+    }
+  >();
 
   bot.command("start", async (ctx) => {
     try {
@@ -81,6 +92,13 @@ export async function initBot(
       logger.error({ error }, "/budget command failed");
     }
   });
+  bot.command("mode", async (ctx) => {
+    try {
+      await handleMode(ctx, sessionStore);
+    } catch (error) {
+      logger.error({ error }, "/mode command failed");
+    }
+  });
   bot.command("claude", async (ctx) => {
     try {
       await handleClaudeCommand(ctx, sessionStore);
@@ -112,6 +130,7 @@ export async function initBot(
       { command: "model", description: "View or change Claude model" },
       { command: "effort", description: "View or set effort level" },
       { command: "budget", description: "View or set budget limit" },
+      { command: "mode", description: "View or change approval mode" },
       { command: "status", description: "Show session status" },
       { command: "stop", description: "Cancel current task" },
       { command: "new", description: "Clear session and start fresh" },
@@ -124,6 +143,38 @@ export async function initBot(
       "Failed to register command menu with Telegram",
     );
   }
+
+  bot.on("callback_query:data", async (ctx) => {
+    const data = ctx.callbackQuery.data;
+    const match = data.match(/^(approve|deny):(.+)$/);
+
+    if (!match) {
+      await ctx.answerCallbackQuery({ text: "Invalid callback data" });
+      return;
+    }
+
+    const [, action, requestId] = match;
+    const pending = pendingApprovals.get(requestId);
+
+    if (!pending) {
+      await ctx.answerCallbackQuery({ text: "Approval request expired" });
+      return;
+    }
+
+    const approved = action === "approve";
+    pending.resolve(approved);
+    pendingApprovals.delete(requestId);
+
+    const statusText = approved ? "✅ Approved — continuing task" : "❌ Denied — stopping task";
+    try {
+      await ctx.editMessageText(statusText);
+    } catch {
+      await ctx.reply(statusText).catch(() => {
+        // Silent fail
+      });
+    }
+    await ctx.answerCallbackQuery();
+  });
 
   bot.on("message", async (ctx) => {
     const prompt = ctx.message?.text;
@@ -156,6 +207,7 @@ export async function initBot(
       model: currentSession?.model ?? "sonnet",
       effort: currentSession?.effort ?? "medium",
       maxBudgetUsd: currentSession?.maxBudgetUsd ?? null,
+      approvalMode: currentSession?.approvalMode ?? "bypass",
     };
     sessionStore.setSession(userId, newSession);
 
@@ -175,6 +227,7 @@ export async function initBot(
       model: newSession.model,
       effort: newSession.effort,
       maxBudgetUsd: newSession.maxBudgetUsd,
+      approvalMode: newSession.approvalMode,
     };
 
     sqliteStore.insertTask({
@@ -220,7 +273,41 @@ export async function initBot(
     }, cfg.TASK_TIMEOUT_MS);
 
     const onProgress: ProgressCallback = (event) => {
-      updater.onProgressEvent(event);
+      if (event.kind === "permission_request") {
+        (async () => {
+          const approvalMsg = await ctx.reply(
+            `🔐 *Permission Required*\n\nTool: \`${event.tool}\`\nAction: ${event.description}`,
+            {
+              parse_mode: "Markdown",
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    { text: "✅ Allow", callback_data: `approve:${event.requestId}` },
+                    { text: "❌ Deny", callback_data: `deny:${event.requestId}` },
+                  ],
+                ],
+              },
+            },
+          );
+
+          const timeoutHandle = setTimeout(() => {
+            pendingApprovals.delete(event.requestId);
+            runner.resolveApproval(event.requestId, false);
+          }, 60000);
+
+          pendingApprovals.set(event.requestId, {
+            resolve: (approved) => {
+              clearTimeout(timeoutHandle);
+              runner.resolveApproval(event.requestId, approved);
+            },
+            taskId,
+            messageId: approvalMsg.message_id,
+            timeoutHandle,
+          });
+        })();
+      } else {
+        updater.onProgressEvent(event);
+      }
     };
 
     // Run task in background without blocking so /stop can be processed
@@ -348,6 +435,7 @@ async function handleNewCommand(
     model: session?.model ?? "sonnet",
     effort: session?.effort ?? "medium",
     maxBudgetUsd: session?.maxBudgetUsd ?? null,
+    approvalMode: session?.approvalMode ?? "bypass",
   });
 
   console.log(`[command:/new] User ${userId} cleared session`);

@@ -31,6 +31,7 @@ export async function handleHelp(ctx: Context): Promise<void> {
 /model – View or change Claude model
 /effort – View or change effort level
 /budget – View or set budget limit
+/mode – View or change approval mode
 /status – Show session status
 /stop – Cancel current task
 /new – Clear session and start fresh
@@ -89,6 +90,7 @@ export async function handleModel(ctx: Context, sessionStore: SessionStore): Pro
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
+    approvalMode: "bypass",
   };
 
   session.model = requested;
@@ -141,6 +143,7 @@ export async function handleEffort(ctx: Context, sessionStore: SessionStore): Pr
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
+    approvalMode: "bypass",
   };
 
   session.effort = requested;
@@ -188,6 +191,7 @@ export async function handleBudget(ctx: Context, sessionStore: SessionStore): Pr
       model: "sonnet",
       effort: "medium",
       maxBudgetUsd: null,
+      approvalMode: "bypass",
     };
 
     session.maxBudgetUsd = null;
@@ -216,6 +220,7 @@ export async function handleBudget(ctx: Context, sessionStore: SessionStore): Pr
     model: "sonnet",
     effort: "medium",
     maxBudgetUsd: null,
+    approvalMode: "bypass",
   };
 
   session.maxBudgetUsd = budget;
@@ -223,5 +228,65 @@ export async function handleBudget(ctx: Context, sessionStore: SessionStore): Pr
 
   await ctx.reply(`Budget set to \\$${budget} per task\\.`, {
     parse_mode: "MarkdownV2",
+  });
+}
+
+const AVAILABLE_MODES = ["bypass", "auto-edit", "manual"];
+const MODE_DESCRIPTIONS: Record<string, string> = {
+  bypass: "Skip all permission checks (dangerous)",
+  "auto-edit": "Auto-accept file edits, prompt for shell commands",
+  manual: "Require Telegram approval for each risky action",
+};
+
+export async function handleMode(ctx: Context, sessionStore: SessionStore): Promise<void> {
+  const userId = ctx.from?.id;
+  if (!userId) {
+    return;
+  }
+
+  const args = ctx.message?.text?.split(/\s+/).slice(1) ?? [];
+  const requested = args[0]?.toLowerCase();
+
+  if (!requested) {
+    const session = sessionStore.getSession(userId);
+    const currentMode = session?.approvalMode ?? "bypass";
+
+    const modeList = AVAILABLE_MODES.map((m) => {
+      const desc = MODE_DESCRIPTIONS[m];
+      return `\`${m}\` — ${desc}`;
+    }).join("\n");
+
+    await ctx.reply(
+      `*Current approval mode*: ${currentMode}\n\n*Available modes*:\n${modeList}\n\nUse \`/mode bypass\`, \`/mode auto-edit\`, or \`/mode manual\` to change.`,
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  if (!AVAILABLE_MODES.includes(requested)) {
+    await ctx.reply(
+      `Unknown mode: \`${requested}\`. Available: ${AVAILABLE_MODES.map((m) => `\`${m}\``).join(", ")}`,
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  const session = sessionStore.getSession(userId) ?? {
+    sessionId: null,
+    activeTaskId: null,
+    lastMessageId: null,
+    updatedAt: new Date().toISOString(),
+    model: "sonnet",
+    effort: "medium",
+    maxBudgetUsd: null,
+    approvalMode: "bypass",
+  };
+
+  session.approvalMode = requested as "bypass" | "auto-edit" | "manual";
+  sessionStore.setSession(userId, session);
+
+  const desc = MODE_DESCRIPTIONS[requested];
+  await ctx.reply(`Approval mode set to \`${requested}\` — ${desc}`, {
+    parse_mode: "Markdown",
   });
 }

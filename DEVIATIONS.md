@@ -60,3 +60,25 @@ These are the questions from `SPEC.md` Section 13. Each must be resolved with an
 **Test:** Verified `claude --version` works and `--print --output-format=stream-json` is supported.
 
 **Q6 Answer (Critical):** Cli respects `$HOME/.claude/` credentials automatically; no `ANTHROPIC_API_KEY` env var needed. Credentials are read from host authentication flow (`claude login`). Verified on this system.
+
+### 2026-04-26 — Section 1.2, 7.5 — Telegram approval bridge (V1 feature implemented)
+
+**Decision:** Implemented approval mode control in MVP with full Telegram-based permission bridging.
+
+**Reason:** User requested ability to control permission handling from Telegram. Implemented three modes:
+- `bypass` — skip all permission checks (current default, still the MVP baseline)
+- `auto-edit` — auto-accept file edits, prompt for shell commands (uses `acceptEdits`)
+- `manual` — pause tasks and ask via Telegram inline keyboard when Claude requests permission
+
+**Implementation:** 
+- `approvalMode` added to `SessionState` and `TaskInput`
+- New `/mode` command in bot to select approval mode
+- Runner maps approval mode to `--permission-mode` argument for Claude CLI
+- For manual mode, stdin is piped and runner detects `permission` event type in stream-json output
+- Bot handles `permission_request` progress events by sending inline keyboard (`✅ Allow` / `❌ Deny`)
+- Runner waits for bot response via `pendingApprovals` Map; auto-denies after 60s timeout
+- Callback query handler bridges Telegram button taps to runner's approval resolution
+
+**Impact:** Users can now choose approval mode per-session, enabling safer remote control. MVP now supports interactive approval flow via Telegram without losing the default dangerously-skip-permissions behavior.
+
+**Test:** Manual testing required to verify Claude CLI emits `permission` event type and accepts `y`/`n` responses on stdin in `default` and `acceptEdits` modes.

@@ -1,5 +1,7 @@
 // Shared event types and contracts
 
+export type ApprovalMode = "bypass" | "auto-edit" | "manual";
+
 export interface TaskInput {
   taskId: string;
   userId: number;
@@ -11,12 +13,20 @@ export interface TaskInput {
   model: string;
   effort: string;
   maxBudgetUsd: number | null;
+  approvalMode: ApprovalMode;
 }
 
 export type ProgressEvent =
   | { taskId: string; kind: "text"; delta: string }
   | { taskId: string; kind: "tool_use"; tool: string; summary: string }
-  | { taskId: string; kind: "tool_result"; tool: string; ok: boolean };
+  | { taskId: string; kind: "tool_result"; tool: string; ok: boolean }
+  | {
+      taskId: string;
+      kind: "permission_request";
+      tool: string;
+      description: string;
+      requestId: string;
+    };
 
 export type ProgressCallback = (event: ProgressEvent) => void;
 

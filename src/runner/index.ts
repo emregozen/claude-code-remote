@@ -1,12 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { execa } from "execa";
 import type { Config } from "../config.js";
-import type { EvidenceBundle, ProgressCallback, ProgressEvent, TaskInput } from "../types.js";
+import type {
+  ApprovalMode,
+  EvidenceBundle,
+  ProgressCallback,
+  ProgressEvent,
+  TaskInput,
+} from "../types.js";
 import type { ToolCall } from "./evidence/collector.js";
 import { collectEvidence } from "./evidence/collector.js";
 
 export interface Runner {
   runTask(input: TaskInput, onProgress: ProgressCallback): Promise<EvidenceBundle>;
   stopTask(taskId: string): void;
+  resolveApproval(requestId: string, approved: boolean): void;
 }
 
 interface ContentBlock {
@@ -34,8 +42,23 @@ interface ClaudeMessage {
 export async function createRunner(cfg: Config): Promise<Runner> {
   const activeControllers = new Map<string, AbortController>();
   const activeProcesses = new Map<string, any>();
+  const pendingApprovals = new Map<string, (approved: boolean) => void>();
+
+  const permissionModeMap: Record<ApprovalMode, string> = {
+    bypass: "bypassPermissions",
+    "auto-edit": "acceptEdits",
+    manual: "default",
+  };
 
   return {
+    resolveApproval(requestId: string, approved: boolean): void {
+      const resolve = pendingApprovals.get(requestId);
+      if (resolve) {
+        pendingApprovals.delete(requestId);
+        resolve(approved);
+      }
+    },
+
     stopTask(taskId: string): void {
       console.log(`[runner:stopTask] Attempting to stop task ${taskId}`);
       const controller = activeControllers.get(taskId);
@@ -93,7 +116,7 @@ export async function createRunner(cfg: Config): Promise<Runner> {
           args.push("--max-budget-usd", String(input.maxBudgetUsd));
         }
 
-        const permissionMode = cfg.CC_SKIP_PERMISSIONS ? "bypassPermissions" : "default";
+        const permissionMode = permissionModeMap[input.approvalMode];
         args.push("--permission-mode", permissionMode);
 
         // Prompt MUST be last argument
@@ -106,6 +129,7 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         const subprocess = execa("claude", args, {
           cwd: input.workspacePath,
           cancelSignal: ac.signal,
+          stdin: input.approvalMode !== "bypass" ? "pipe" : undefined,
         });
 
         activeProcesses.set(input.taskId, subprocess);
@@ -115,6 +139,13 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         if (!subprocess.stdout) {
           throw new Error("Failed to create subprocess stream");
         }
+
+        const handlePermissionResponse = async (approved: boolean) => {
+          const response = approved ? "y\n" : "n\n";
+          if (subprocess.stdin) {
+            subprocess.stdin.write(response);
+          }
+        };
 
         console.log(`[task:${input.taskId}] Waiting for output from subprocess...`);
         let buffer = "";
@@ -192,6 +223,32 @@ export async function createRunner(cfg: Config): Promise<Runner> {
                   onProgress(progressEvent);
                 }
               }
+            } else if (event.type === "permission") {
+              const requestId = randomUUID();
+              const tool = (event as any).tool ?? "Tool";
+              const description = (event as any).description ?? "Unknown action";
+
+              onProgress({
+                taskId: input.taskId,
+                kind: "permission_request",
+                tool,
+                description,
+                requestId,
+              });
+
+              const approved = await new Promise<boolean>((resolve) => {
+                const timeoutHandle = setTimeout(() => {
+                  pendingApprovals.delete(requestId);
+                  resolve(false);
+                }, 60000);
+
+                pendingApprovals.set(requestId, (approved) => {
+                  clearTimeout(timeoutHandle);
+                  resolve(approved);
+                });
+              });
+
+              await handlePermissionResponse(approved);
             } else if (event.type === "result") {
               resultSessionId = event.session_id ?? input.sessionId;
               tokensIn = event.usage?.input_tokens ?? 0;

@@ -40,16 +40,6 @@ export async function initBot(
   const rateLimiter = new RateLimiter(30);
   bot.use(rateLimiter.middleware());
 
-  const pendingApprovals = new Map<
-    string,
-    {
-      resolve: (approved: boolean) => void;
-      taskId: string;
-      messageId: number;
-      timeoutHandle: NodeJS.Timeout;
-    }
-  >();
-
   bot.command("start", async (ctx) => {
     try {
       await handleStart(ctx);
@@ -143,38 +133,6 @@ export async function initBot(
       "Failed to register command menu with Telegram",
     );
   }
-
-  bot.on("callback_query:data", async (ctx) => {
-    const data = ctx.callbackQuery.data;
-    const match = data.match(/^(approve|deny):(.+)$/);
-
-    if (!match) {
-      await ctx.answerCallbackQuery({ text: "Invalid callback data" });
-      return;
-    }
-
-    const [, action, requestId] = match;
-    const pending = pendingApprovals.get(requestId);
-
-    if (!pending) {
-      await ctx.answerCallbackQuery({ text: "Approval request expired" });
-      return;
-    }
-
-    const approved = action === "approve";
-    pending.resolve(approved);
-    pendingApprovals.delete(requestId);
-
-    const statusText = approved ? "✅ Approved — continuing task" : "❌ Denied — stopping task";
-    try {
-      await ctx.editMessageText(statusText);
-    } catch {
-      await ctx.reply(statusText).catch(() => {
-        // Silent fail
-      });
-    }
-    await ctx.answerCallbackQuery();
-  });
 
   bot.on("message", async (ctx) => {
     const prompt = ctx.message?.text;
@@ -273,41 +231,7 @@ export async function initBot(
     }, cfg.TASK_TIMEOUT_MS);
 
     const onProgress: ProgressCallback = (event) => {
-      if (event.kind === "permission_request") {
-        (async () => {
-          const approvalMsg = await ctx.reply(
-            `🔐 *Permission Required*\n\nTool: \`${event.tool}\`\nAction: ${event.description}`,
-            {
-              parse_mode: "Markdown",
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    { text: "✅ Allow", callback_data: `approve:${event.requestId}` },
-                    { text: "❌ Deny", callback_data: `deny:${event.requestId}` },
-                  ],
-                ],
-              },
-            },
-          );
-
-          const timeoutHandle = setTimeout(() => {
-            pendingApprovals.delete(event.requestId);
-            runner.resolveApproval(event.requestId, false);
-          }, 60000);
-
-          pendingApprovals.set(event.requestId, {
-            resolve: (approved) => {
-              clearTimeout(timeoutHandle);
-              runner.resolveApproval(event.requestId, approved);
-            },
-            taskId,
-            messageId: approvalMsg.message_id,
-            timeoutHandle,
-          });
-        })();
-      } else {
-        updater.onProgressEvent(event);
-      }
+      updater.onProgressEvent(event);
     };
 
     // Run task in background without blocking so /stop can be processed

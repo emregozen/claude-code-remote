@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { execa } from "execa";
 import type { Config } from "../config.js";
 import type {
@@ -10,12 +9,9 @@ import type {
 } from "../types.js";
 import type { ToolCall } from "./evidence/collector.js";
 import { collectEvidence } from "./evidence/collector.js";
-import type { HookServer, PermissionRequest } from "./server.js";
-
 export interface Runner {
   runTask(input: TaskInput, onProgress: ProgressCallback): Promise<EvidenceBundle>;
   stopTask(taskId: string): void;
-  resolveApproval(requestId: string, approved: boolean): void;
 }
 
 interface ContentBlock {
@@ -47,29 +43,17 @@ interface ClaudeMessage {
   }>;
 }
 
-// Tools that are always allowed in "safe" mode without Telegram prompt
-const SAFE_TOOLS = new Set(["Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS"]);
-
-function needsApproval(mode: ApprovalMode, toolName: string): boolean {
-  if (mode === "bypass") return false;
-  if (mode === "safe") return !SAFE_TOOLS.has(toolName);
-  return true; // strict: ask for everything
+function toPermissionMode(mode: ApprovalMode): string {
+  if (mode === "bypass") return "bypassPermissions";
+  if (mode === "safe") return "acceptEdits";
+  return "default"; // strict: deny all in non-interactive
 }
 
-export async function createRunner(cfg: Config, hookServer: HookServer): Promise<Runner> {
+export async function createRunner(cfg: Config): Promise<Runner> {
   const activeControllers = new Map<string, AbortController>();
   const activeProcesses = new Map<string, any>();
-  const pendingApprovals = new Map<string, (approved: boolean) => void>();
 
   return {
-    resolveApproval(requestId: string, approved: boolean): void {
-      const resolve = pendingApprovals.get(requestId);
-      if (resolve) {
-        pendingApprovals.delete(requestId);
-        resolve(approved);
-      }
-    },
-
     stopTask(taskId: string): void {
       console.log(`[runner:stopTask] Attempting to stop task ${taskId}`);
       const controller = activeControllers.get(taskId);
@@ -114,37 +98,6 @@ export async function createRunner(cfg: Config, hookServer: HookServer): Promise
 
       activeControllers.set(input.taskId, ac);
 
-      // Wire up PreToolUse hook handler for non-bypass modes
-      if (input.approvalMode !== "bypass") {
-        hookServer.setPermissionHandler(async (req: PermissionRequest): Promise<boolean> => {
-          const toolName = req.tool_name ?? "unknown";
-          if (!needsApproval(input.approvalMode, toolName)) {
-            return true;
-          }
-
-          const requestId = randomUUID();
-          const description = String(
-            req.tool_input?.description ?? req.tool_input?.command ?? toolName,
-          );
-
-          onProgress({
-            taskId: input.taskId,
-            kind: "permission_request",
-            tool: toolName,
-            description,
-            requestId,
-          });
-
-          return new Promise<boolean>((resolve) => {
-            pendingApprovals.set(requestId, resolve);
-            setTimeout(() => {
-              pendingApprovals.delete(requestId);
-              resolve(false);
-            }, 60000);
-          });
-        });
-      }
-
       try {
         const args: string[] = ["--print", "--output-format=stream-json", "--verbose"];
 
@@ -159,8 +112,7 @@ export async function createRunner(cfg: Config, hookServer: HookServer): Promise
           args.push("--max-budget-usd", String(input.maxBudgetUsd));
         }
 
-        // Always use bypassPermissions — the PreToolUse hook is the gatekeeper
-        args.push("--permission-mode", "bypassPermissions");
+        args.push("--permission-mode", toPermissionMode(input.approvalMode));
 
         // Prompt MUST be last argument
         args.push(input.prompt);
@@ -331,7 +283,7 @@ export async function createRunner(cfg: Config, hookServer: HookServer): Promise
         const message = error instanceof Error ? error.message : "Unknown error";
         throw new Error(`Task execution failed: ${message}`);
       } finally {
-        hookServer.setPermissionHandler(null);
+        // no-op
       }
     },
   };

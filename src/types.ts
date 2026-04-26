@@ -19,14 +19,7 @@ export interface TaskInput {
 export type ProgressEvent =
   | { taskId: string; kind: "text"; delta: string }
   | { taskId: string; kind: "tool_use"; tool: string; summary: string }
-  | { taskId: string; kind: "tool_result"; tool: string; ok: boolean }
-  | {
-      taskId: string;
-      kind: "permission_request";
-      tool: string;
-      description: string;
-      requestId: string;
-    };
+  | { taskId: string; kind: "tool_result"; tool: string; ok: boolean };
 
 export type ProgressCallback = (event: ProgressEvent) => void;
 

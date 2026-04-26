@@ -28,7 +28,15 @@ Mobile-first remote control for Claude Code via Telegram. Run Claude Code tasks 
 
 ⚠️ **IMPORTANT: The bot can run any code on your behalf, including destructive commands like `rm -rf`. Only run ClaudeRemote on a project you control. Consider running this on a dedicated machine or VM if the workspace contains sensitive data or code.**
 
-The bot runs Claude Code with `--dangerously-skip-permissions` by default for MVP. No approval prompts. All tool use is automatic.
+The bot supports three approval modes (set with `/mode`):
+
+| Mode | Behavior |
+|---|---|
+| `bypass` | All tools run without prompts (`bypassPermissions`) |
+| `safe` | File edits auto-approved, Bash and other tools denied (`acceptEdits`) |
+| `strict` | All tools require explicit Claude Code permission (`default`) |
+
+In non-interactive mode, denied tools are reported back as blocked operations in the task summary.
 
 ## Installation
 
@@ -113,8 +121,6 @@ All configuration is via `.env`. See `.env.example` for all options:
 | `LOG_LEVEL` | no | `info` | `trace`, `debug`, `info`, `warn`, `error` |
 | `PROGRESS_EDIT_INTERVAL_MS` | no | `3000` | Min 1500ms (Telegram rate limit) |
 | `TASK_TIMEOUT_MS` | no | `1800000` | 30 min default |
-| `HOOK_HTTP_PORT` | no | `4711` | Hook server bind port |
-| `CC_SKIP_PERMISSIONS` | no | `true` | Bypass CC permission prompts |
 
 ## Commands
 
@@ -123,8 +129,13 @@ All configuration is via `.env`. See `.env.example` for all options:
 | `/start` | Initialize a new session |
 | `/help` | Show help and command list |
 | `/status` | Show current session status |
+| `/mode` | View or change approval mode (`bypass` / `safe` / `strict`) |
+| `/model` | View or change Claude model |
+| `/effort` | View or set effort level |
+| `/budget` | View or set per-task USD budget limit |
 | `/stop` | Cancel the running task |
 | `/new` | Clear session and start fresh |
+| `/claude` | Manage Claude Code sessions |
 | *text message* | Send a prompt to Claude Code |
 
 ## How it works
@@ -158,17 +169,6 @@ All configuration is via `.env`. See `.env.example` for all options:
 - Increase `TASK_TIMEOUT_MS` in `.env`
 - Check if the task is actually stuck (review terminal output)
 
-**Settings.json was modified and not restored**
-- ClaudeRemote modifies `~/.claude/settings.json` to register hooks
-- On graceful shutdown, the original is restored
-- If the process crashed, manually restore from backup:
-  ```bash
-  # Check if backup exists
-  ls ~/.claude/settings.json.backup.cr
-  # Restore it
-  cp ~/.claude/settings.json.backup.cr ~/.claude/settings.json
-  ```
-
 **"A task is already running"**
 - Send `/stop` to cancel the current task
 - Use `/new` to clear the session entirely
@@ -195,8 +195,6 @@ Single Node.js process containing:
 - **Bot**: grammY framework, Telegram long-polling, command handlers
 - **Runner**: Claude Code SDK wrapper, progress event streaming
 - **Store**: SQLite3 for persistent task history, in-memory Map for sessions
-- **Hook Server**: Fastify on 127.0.0.1:4711, receives Stop hook callbacks
-
 No external services required (no Redis, no separate containers).
 
 ## License

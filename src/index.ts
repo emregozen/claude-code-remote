@@ -8,9 +8,7 @@ if (process.env.NODE_ENV !== "production") {
 import { initBot } from "./bot/index.js";
 import { parseConfig } from "./config.js";
 import { createLogger } from "./logger.js";
-import { installCCHooks } from "./runner/hooks/install.js";
 import { createRunner } from "./runner/index.js";
-import { createHookServer } from "./runner/server.js";
 import { SQLiteStore } from "./store/db.js";
 
 async function main() {
@@ -37,16 +35,8 @@ async function main() {
   sqliteStore.markInFlightAsError();
   console.log("✓ Recovery sweep completed");
 
-  // Install CC hooks and manage settings.json
-  const cleanupHooks = await installCCHooks(cfg.HOOK_HTTP_PORT);
-  console.log("✓ CC hooks installed");
-
-  // Start hook HTTP server
-  const hookServer = await createHookServer(cfg.HOOK_HTTP_PORT);
-  console.log(`✓ Hook server running on 127.0.0.1:${cfg.HOOK_HTTP_PORT}`);
-
   // Create runner instance
-  const runner = await createRunner(cfg, hookServer);
+  const runner = await createRunner(cfg);
   console.log("✓ Runner initialized");
 
   // Initialize bot
@@ -61,7 +51,6 @@ async function main() {
   const handleShutdown = async () => {
     console.log("\nShutting down gracefully...");
     await bot.stop();
-    await cleanupHooks();
     sqliteStore.close();
     process.exit(0);
   };

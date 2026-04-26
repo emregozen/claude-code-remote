@@ -24,7 +24,6 @@ const schema = z.object({
     .min(1500, "Min 1500ms to respect Telegram rate limits")
     .default(3000),
   TASK_TIMEOUT_MS: z.coerce.number().int().positive().default(1800000),
-  HOOK_HTTP_PORT: z.coerce.number().int().min(1024).max(65535).default(4711),
 });
 
 export type Config = z.infer<typeof schema>;

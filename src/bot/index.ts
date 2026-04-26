@@ -224,11 +224,11 @@ export async function initBot(
     };
 
     // Run task in background without blocking so /stop can be processed
-    runner
-      .runTask(taskInput, onProgress)
-      .then((evidence) => {
+    (async () => {
+      try {
+        const evidence = await runner.runTask(taskInput, onProgress);
         clearTimeout(timeoutTimer);
-        updater.cleanup();
+        await updater.cleanup();
         sessionStore.deleteProgress(taskId);
 
         const sess = sessionStore.getSession(userId);
@@ -238,17 +238,18 @@ export async function initBot(
           sessionStore.setSession(userId, sess);
         }
 
-        ctx.deleteMessage().catch(() => {
+        await ctx.deleteMessage().catch(() => {
           // Already deleted or doesn't exist
         });
-        ctx.reply(renderEvidence(evidence, prompt), { parse_mode: "MarkdownV2" }).catch((e) => {
-          logger.error({ error: e }, "Failed to send evidence message");
-        });
+        await ctx
+          .reply(renderEvidence(evidence, prompt), { parse_mode: "MarkdownV2" })
+          .catch((e) => {
+            logger.error({ error: e }, "Failed to send evidence message");
+          });
         sqliteStore.updateTaskStatus(taskId, "complete", evidence);
-      })
-      .catch((error) => {
+      } catch (error) {
         clearTimeout(timeoutTimer);
-        updater.cleanup();
+        await updater.cleanup();
         sessionStore.deleteProgress(taskId);
         const sess = sessionStore.getSession(userId);
         if (sess) {
@@ -262,8 +263,8 @@ export async function initBot(
           (error instanceof Error && error.message.includes("canceled"));
         if (isCanceled) {
           console.log(`[task:${taskId}] Task was cancelled by user`);
-          ctx.editMessageText("⏹️ Task cancelled.").catch(() => {
-            ctx.reply("⏹️ Task cancelled.").catch(() => {
+          await ctx.editMessageText("⏹️ Task cancelled.").catch(() => {
+            return ctx.reply("⏹️ Task cancelled.").catch(() => {
               // Silent fail
             });
           });
@@ -275,9 +276,9 @@ export async function initBot(
           const escapedError = errorMsg.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, (c) => `\\${c}`);
           const errorText = `💥 Error: ${escapedError}`;
 
-          ctx.editMessageText(errorText).catch(() => {
-            ctx.reply(errorText, { parse_mode: "MarkdownV2" }).catch(() => {
-              ctx.reply("❌ Task failed (error details unavailable)").catch(() => {
+          await ctx.editMessageText(errorText).catch(() => {
+            return ctx.reply(errorText, { parse_mode: "MarkdownV2" }).catch(() => {
+              return ctx.reply("❌ Task failed (error details unavailable)").catch(() => {
                 // Silent fail
               });
             });
@@ -285,7 +286,8 @@ export async function initBot(
 
           sqliteStore.updateTaskStatus(taskId, "error");
         }
-      });
+      }
+    })();
   });
 
   return bot;

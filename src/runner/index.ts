@@ -14,15 +14,18 @@ import { collectEvidence } from "./evidence/collector.js";
 export interface Runner {
   runTask(input: TaskInput, onProgress: ProgressCallback): Promise<EvidenceBundle>;
   stopTask(taskId: string): void;
+  resolveApproval(requestId: string, approved: boolean): void;
 }
 
 interface ContentBlock {
   type: string;
   text?: string;
   name?: string;
+  id?: string;
   input?: Record<string, unknown>;
   content?: string;
   is_error?: boolean;
+  tool_use_id?: string;
 }
 
 interface ClaudeMessage {
@@ -46,6 +49,8 @@ interface ClaudeMessage {
 export async function createRunner(cfg: Config): Promise<Runner> {
   const activeControllers = new Map<string, AbortController>();
   const activeProcesses = new Map<string, any>();
+  const pendingApprovals = new Map<string, (approved: boolean) => void>();
+  const pendingToolUses = new Map<string, { name: string; input: Record<string, unknown> }>();
 
   const permissionModeMap: Record<ApprovalMode, string> = {
     bypass: "bypassPermissions",
@@ -54,6 +59,14 @@ export async function createRunner(cfg: Config): Promise<Runner> {
   };
 
   return {
+    resolveApproval(requestId: string, approved: boolean): void {
+      const resolve = pendingApprovals.get(requestId);
+      if (resolve) {
+        pendingApprovals.delete(requestId);
+        resolve(approved);
+      }
+    },
+
     stopTask(taskId: string): void {
       console.log(`[runner:stopTask] Attempting to stop task ${taskId}`);
       const controller = activeControllers.get(taskId);
@@ -124,6 +137,7 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         const subprocess = execa("claude", args, {
           cwd: input.workspacePath,
           cancelSignal: ac.signal,
+          stdin: input.approvalMode !== "bypass" ? "pipe" : undefined,
         });
 
         activeProcesses.set(input.taskId, subprocess);
@@ -179,6 +193,10 @@ export async function createRunner(cfg: Config): Promise<Runner> {
                     toolCalls.push(toolCall);
                   }
 
+                  if (block.id) {
+                    pendingToolUses.set(block.id, { name: tool, input: block.input ?? {} });
+                  }
+
                   const progressEvent: ProgressEvent = {
                     taskId: input.taskId,
                     kind: "tool_use",
@@ -193,6 +211,37 @@ export async function createRunner(cfg: Config): Promise<Runner> {
                 if (block.type === "tool_result") {
                   const isError = (block.is_error ?? false) as boolean;
                   const output = block.content as string | undefined;
+                  const toolInfo = block.tool_use_id
+                    ? pendingToolUses.get(block.tool_use_id)
+                    : undefined;
+                  if (block.tool_use_id) {
+                    pendingToolUses.delete(block.tool_use_id);
+                  }
+
+                  if (output === "This command requires approval" && toolInfo) {
+                    const requestId = randomUUID();
+                    const description = String(
+                      toolInfo.input.description ?? toolInfo.input.command ?? toolInfo.name,
+                    );
+
+                    onProgress({
+                      taskId: input.taskId,
+                      kind: "permission_request",
+                      tool: toolInfo.name,
+                      description,
+                      requestId,
+                    });
+
+                    const approved = await new Promise<boolean>((resolve) => {
+                      pendingApprovals.set(requestId, resolve);
+                      setTimeout(() => {
+                        pendingApprovals.delete(requestId);
+                        resolve(false);
+                      }, 60000);
+                    });
+
+                    subprocess.stdin?.write(approved ? "y\n" : "n\n");
+                  }
 
                   if (lastBashCall) {
                     lastBashCall.exitCode = isError ? 1 : 0;

@@ -42,11 +42,11 @@ async function main() {
   console.log("✓ CC hooks installed");
 
   // Start hook HTTP server
-  await createHookServer(cfg.HOOK_HTTP_PORT);
+  const hookServer = await createHookServer(cfg.HOOK_HTTP_PORT);
   console.log(`✓ Hook server running on 127.0.0.1:${cfg.HOOK_HTTP_PORT}`);
 
   // Create runner instance
-  const runner = await createRunner(cfg);
+  const runner = await createRunner(cfg, hookServer);
   console.log("✓ Runner initialized");
 
   // Initialize bot

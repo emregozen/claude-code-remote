@@ -32,8 +32,9 @@ export async function installCCHooks(hookPort: number): Promise<() => Promise<vo
   const existingSettings = readSettings();
   originalSettingsBackup = JSON.stringify(existingSettings);
 
-  // Resolve the absolute path to on-stop.sh
+  // Resolve the absolute paths to hook scripts
   const onStopScriptPath = join(__dirname, "on-stop.sh");
+  const onPreToolScriptPath = join(__dirname, "on-pre-tool.sh");
 
   // Merge our hooks into the existing settings
   const updatedSettings = {
@@ -48,6 +49,18 @@ export async function installCCHooks(hookPort: number): Promise<() => Promise<vo
               type: "command",
               command: onStopScriptPath,
               timeout: 10,
+            },
+          ],
+        },
+      ],
+      PreToolUse: [
+        {
+          matcher: "*",
+          hooks: [
+            {
+              type: "command",
+              command: onPreToolScriptPath,
+              timeout: 70,
             },
           ],
         },

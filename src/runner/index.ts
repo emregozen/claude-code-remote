@@ -10,6 +10,7 @@ import type {
 } from "../types.js";
 import type { ToolCall } from "./evidence/collector.js";
 import { collectEvidence } from "./evidence/collector.js";
+import type { HookServer, PermissionRequest } from "./server.js";
 
 export interface Runner {
   runTask(input: TaskInput, onProgress: ProgressCallback): Promise<EvidenceBundle>;
@@ -46,17 +47,19 @@ interface ClaudeMessage {
   }>;
 }
 
-export async function createRunner(cfg: Config): Promise<Runner> {
+// Tools that are always allowed in "safe" mode without Telegram prompt
+const SAFE_TOOLS = new Set(["Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS"]);
+
+function needsApproval(mode: ApprovalMode, toolName: string): boolean {
+  if (mode === "bypass") return false;
+  if (mode === "safe") return !SAFE_TOOLS.has(toolName);
+  return true; // strict: ask for everything
+}
+
+export async function createRunner(cfg: Config, hookServer: HookServer): Promise<Runner> {
   const activeControllers = new Map<string, AbortController>();
   const activeProcesses = new Map<string, any>();
   const pendingApprovals = new Map<string, (approved: boolean) => void>();
-  const pendingToolUses = new Map<string, { name: string; input: Record<string, unknown> }>();
-
-  const permissionModeMap: Record<ApprovalMode, string> = {
-    bypass: "bypassPermissions",
-    safe: "acceptEdits",
-    strict: "default",
-  };
 
   return {
     resolveApproval(requestId: string, approved: boolean): void {
@@ -102,6 +105,7 @@ export async function createRunner(cfg: Config): Promise<Runner> {
       const startTime = Date.now();
       const toolCalls: ToolCall[] = [];
       let lastBashCall: ToolCall | null = null;
+      const pendingToolUses = new Map<string, { name: string; input: Record<string, unknown> }>();
       const ac = new AbortController();
 
       const timeoutHandle = setTimeout(() => {
@@ -109,6 +113,37 @@ export async function createRunner(cfg: Config): Promise<Runner> {
       }, cfg.TASK_TIMEOUT_MS);
 
       activeControllers.set(input.taskId, ac);
+
+      // Wire up PreToolUse hook handler for non-bypass modes
+      if (input.approvalMode !== "bypass") {
+        hookServer.setPermissionHandler(async (req: PermissionRequest): Promise<boolean> => {
+          const toolName = req.tool_name ?? "unknown";
+          if (!needsApproval(input.approvalMode, toolName)) {
+            return true;
+          }
+
+          const requestId = randomUUID();
+          const description = String(
+            req.tool_input?.description ?? req.tool_input?.command ?? toolName,
+          );
+
+          onProgress({
+            taskId: input.taskId,
+            kind: "permission_request",
+            tool: toolName,
+            description,
+            requestId,
+          });
+
+          return new Promise<boolean>((resolve) => {
+            pendingApprovals.set(requestId, resolve);
+            setTimeout(() => {
+              pendingApprovals.delete(requestId);
+              resolve(false);
+            }, 60000);
+          });
+        });
+      }
 
       try {
         const args: string[] = ["--print", "--output-format=stream-json", "--verbose"];
@@ -124,8 +159,8 @@ export async function createRunner(cfg: Config): Promise<Runner> {
           args.push("--max-budget-usd", String(input.maxBudgetUsd));
         }
 
-        const permissionMode = permissionModeMap[input.approvalMode];
-        args.push("--permission-mode", permissionMode);
+        // Always use bypassPermissions — the PreToolUse hook is the gatekeeper
+        args.push("--permission-mode", "bypassPermissions");
 
         // Prompt MUST be last argument
         args.push(input.prompt);
@@ -137,7 +172,6 @@ export async function createRunner(cfg: Config): Promise<Runner> {
         const subprocess = execa("claude", args, {
           cwd: input.workspacePath,
           cancelSignal: ac.signal,
-          stdin: input.approvalMode !== "bypass" ? "pipe" : undefined,
         });
 
         activeProcesses.set(input.taskId, subprocess);
@@ -211,36 +245,8 @@ export async function createRunner(cfg: Config): Promise<Runner> {
                 if (block.type === "tool_result") {
                   const isError = (block.is_error ?? false) as boolean;
                   const output = block.content as string | undefined;
-                  const toolInfo = block.tool_use_id
-                    ? pendingToolUses.get(block.tool_use_id)
-                    : undefined;
                   if (block.tool_use_id) {
                     pendingToolUses.delete(block.tool_use_id);
-                  }
-
-                  if (output === "This command requires approval" && toolInfo) {
-                    const requestId = randomUUID();
-                    const description = String(
-                      toolInfo.input.description ?? toolInfo.input.command ?? toolInfo.name,
-                    );
-
-                    onProgress({
-                      taskId: input.taskId,
-                      kind: "permission_request",
-                      tool: toolInfo.name,
-                      description,
-                      requestId,
-                    });
-
-                    const approved = await new Promise<boolean>((resolve) => {
-                      pendingApprovals.set(requestId, resolve);
-                      setTimeout(() => {
-                        pendingApprovals.delete(requestId);
-                        resolve(false);
-                      }, 60000);
-                    });
-
-                    subprocess.stdin?.write(approved ? "y\n" : "n\n");
                   }
 
                   if (lastBashCall) {
@@ -324,6 +330,8 @@ export async function createRunner(cfg: Config): Promise<Runner> {
 
         const message = error instanceof Error ? error.message : "Unknown error";
         throw new Error(`Task execution failed: ${message}`);
+      } finally {
+        hookServer.setPermissionHandler(null);
       }
     },
   };

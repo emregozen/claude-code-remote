@@ -47,7 +47,7 @@ export function renderEvidence(evidence: EvidenceBundle, originalPrompt: string)
 
   if (evidence.deniedOperations && evidence.deniedOperations.length > 0) {
     parts.push("");
-    parts.push("*⚠️ Blocked operations* (approval mode):");
+    parts.push("*⚠️ Blocked operations* \\(approval mode\\):");
     for (const denial of evidence.deniedOperations) {
       parts.push(
         `  • ${escapeMarkdownV2(denial.tool)}: ${denial.description ? escapeMarkdownV2(denial.description) : "operation"}`,

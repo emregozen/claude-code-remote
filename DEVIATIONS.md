@@ -82,3 +82,20 @@ These are the questions from `SPEC.md` Section 13. Each must be resolved with an
 **Impact:** Users can now choose approval mode per-session, enabling safer remote control. MVP now supports interactive approval flow via Telegram without losing the default dangerously-skip-permissions behavior.
 
 **Test:** Manual testing required to verify Claude CLI emits `permission` event type and accepts `y`/`n` responses on stdin in `default` and `acceptEdits` modes.
+
+### 2026-04-26 — Section 7.5 (Critical) — Permission bridging infeasible in --print mode
+
+**Finding:** In `--print` mode (non-interactive with `--output-format=stream-json`), Claude CLI never emits `permission` JSON events. Instead, it silently denies operations and reports them in a `permission_denials` array in the final `result` event. Stdin piping + `y`/`n` responses do NOT work in this mode.
+
+**Decision:** Removed all permission-request bridging logic (dead code). Now parse `permission_denials` from result event and surface blocked operations to the user:
+- Display warning in progress updates: "⚠️ Blocked by approval mode: • Bash: npm install"  
+- Include denied operations in evidence message for transparency
+- Renamed approval modes for clarity: `bypass` / `safe` / `strict`
+- Removed `CC_SKIP_PERMISSIONS` config (unused)
+
+**Impact:** Users now see what Claude wanted to do but couldn't. Approval modes work via `--permission-mode` args, not interactive stdin:
+- `bypass` + `bypassPermissions` → no checks
+- `safe` + `acceptEdits` → file edits allowed, shell/network denied
+- `strict` + `default` → most risky ops denied
+
+**Reason:** MVP runs with `--print` and `--output-format=stream-json` for streaming, which disables interactive approval. This is a fundamental limitation of the CLI in non-interactive mode.
